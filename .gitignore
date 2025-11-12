@@ -2,3 +2,6 @@
 .vscode/
 env/
 __pycache__/
+*.duckdb
+*.parquet
+*.code-workspace
