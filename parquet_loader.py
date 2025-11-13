@@ -32,9 +32,6 @@ def pick_header_key(filename: str) -> str | None:
 
 
 for csv_path in CMS_DIR.rglob("*.csv"):
-    # if "OUT" not in csv_path.name.upper():
-    #     continue
-
     pq_path = csv_path.with_suffix(".parquet")
     print(f"Converting {csv_path}  →  {pq_path}")
 
@@ -46,7 +43,7 @@ for csv_path in CMS_DIR.rglob("*.csv"):
         if header_list:
             names_sql = ", ".join("'" + c.replace("'", "''") + "'" for c in header_list)
             header_flag = "false"
-            col_def = f"names=[{names_sql}], header={header_flag}"
+            col_def = f"names={header_list}, header={header_flag}"
         else:
             header_flag = "true"
             col_def = f"header={header_flag}"
@@ -56,7 +53,7 @@ for csv_path in CMS_DIR.rglob("*.csv"):
                 SELECT * FROM read_csv(
                     '{csv_path}',
                     delim=',',
-                    header=true,
+                    {col_def},
                     quote='"',
                     escape='"',
                     compression='auto',
