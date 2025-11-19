@@ -1,5 +1,5 @@
 {
-    "Xinp_claimsk": [
+    "inp_claimsk": [
         "DSYSRTKY",
         "CLAIMNO",
         "PROVIDER",
@@ -230,7 +230,7 @@
         "CLM_NEXT_GNRTN_ACO_IND_CD5",
         "ACO_ID_NUM"
     ],
-    "Xinp_claimsj":[
+    "inp_claimsj":[
         "DSYSRTKY",
         "CLAIMNO",
         "PROVIDER",
@@ -594,7 +594,7 @@
         "DUAL_11",
         "DUAL_12"
     ],
-    "Xout_claimsk": [
+    "out_claimsk": [
         "DSYSRTKY",
         "CLAIMNO",
         "PROVIDER",
