@@ -34,7 +34,7 @@ with HEADERS_PATH.open("r") as f:
 con = duckdb.connect()
 con.execute("PRAGMA threads=4;")
 con.execute("PRAGMA preserve_insertion_order=false;")
-con.execute("PRAGMA temp_directory='/Volumes/hssd_2tb/tmp_duckdb';")
+con.execute(f"PRAGMA temp_directory='{PARQUET_DIR}/tmp_duckdb';")
 con.execute("PRAGMA memory_limit='6GB';")
 
 def pick_header_key(filename: str) -> str | None:
@@ -61,16 +61,19 @@ for csv_path in CMS_DIR.rglob("*.csv"):
     if csv_path.name[:3].lower() == "inp" or csv_path.name[:3].lower() == "out":
         header_list = None
         print(f"Using file's own header row for {csv_path.name}")
-    continue
+
     try:
-        names_sql = ", ".join("'" + c.replace("'", "''") + "'" for c in header_list)
+        if header_list is not None:
+            names_sql = ", ".join("'" + c.replace("'", "''") + "'" for c in header_list)
+        else:
+            names_sql = ""
         con.execute(f"""
             COPY (
                 SELECT * FROM read_csv(
                     '{csv_path}',
                     delim=',',
                     names=[{names_sql}],
-                    header=false,
+                    header={ 'true' if header_list is None else 'false' },
                     quote='"',
                     escape='"',
                     compression='auto',

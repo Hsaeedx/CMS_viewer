@@ -119,19 +119,31 @@ print()
 
 # -------------------------------------------------------------------
 
+# Count number of unique patients in mbsf
+print("[INFO] Counting unique patients in 'mbsf'...")
 
-#-
-# Count number of patients with HNC
-#- 
+query = """
+SELECT COUNT(DISTINCT DSYSRTKY) AS unique_patients
+FROM mbsf;
+"""
 
-HNC_codes = [
-    ("C00", "C14"),
-    ("C30", "C32")
-]
+result = con.execute(query).fetchone()
+print(f"Number of unique patients in 'mbsf': {result[0]:,}")
 
-df = get_patients_with_icd10(con, HNC_codes, "all")
-print("Number of unique patients with head and neck cancer (HNC):", len(df))
-print(df.head())
+
+
+# #-
+# # Count number of patients with HNC
+# #- 
+
+# HNC_codes = [
+#     ("C00", "C14"),
+#     ("C30", "C32")
+# ]
+
+# df = get_patients_with_icd10(con, HNC_codes, "all")
+# print("Number of unique patients with head and neck cancer (HNC):", len(df))
+# print(df.head())
 
 
 
