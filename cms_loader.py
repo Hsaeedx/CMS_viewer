@@ -1,69 +1,125 @@
 #!/usr/bin/env python3
-# (content abbreviated here in this notebook output)
-# See full script in file. This script sets up DuckDB views over your CSVs,
-# builds an H&N cohort by ICD-10, and computes basic costs.
+"""
+Sets up DuckDB views over your Parquet files.
+Groups similar files (e.g., all INP files) into combined tables.
+Uses environment variables for configuration.
+"""
 import duckdb as dd
-import json
+import os
+import sys
+import re
 from pathlib import Path
+from collections import defaultdict
+from dotenv import load_dotenv
 
-CMS_DIR = Path("/Volumes/hssd_2tb/CMS")
-HEADERS_PATH = Path("headers.json")
-with open(HEADERS_PATH, "r") as f:
-    HEADERS = json.load(f)
+load_dotenv()
 
-FILES = [
-    "mbsf",
-    "inp_claimsk",
-    "inp_revenuek",
-    "out_claimsk",
-    "out_revenuek",
-    "car_claimsk",
-    "car_linek",
-]
+PARQUET_DIR = Path(os.getenv("parquet_directory"))
+DB_PATH = os.getenv("duckdb_database", "cms.duckdb")
+
+if not PARQUET_DIR or not PARQUET_DIR.exists():
+    print("Error: parquet_directory is not set or does not exist.")
+    print(f"Current value: {PARQUET_DIR}")
+    sys.exit(1)
 
 
-con = dd.connect("cms.duckdb")
+print(f"[INFO] Creating DuckDB database at: {DB_PATH}")
+con = dd.connect(DB_PATH)
+con.execute("PRAGMA threads=4;")
+con.execute("PRAGMA memory_limit='6GB';")
+print(f"[INFO] Database connected successfully\n")
 
-def csv_view(name, file, year):
-    p = Path(f"{file}_{year}.csv")
-    if not p.exists() and Path(str(p) + ".gz").exists():
-        p = Path(str(p) + ".gz")
-    if not p.exists():
-        print(f"[WARN] Missing: {file}_{year}.csv[.gz]")
-        return
 
-    # Try to get header list from your JSON
-    try:
-        header = HEADERS[name]
-    except KeyError:
-        print(f"[WARN] No header entry for: {name}")
-        return
+def extract_table_type(filename):
+    """
+    Extract table type from filename.
+    Examples:
+      - "mbsf_2023.parquet" -> "mbsf"
+      - "inp_claimsk_2019.parquet" -> "inp_claimsk"
+      - "OUT_claimsk_2023.parquet" -> "out_claimsk"
+    """
+    # Remove .parquet extension
+    name = filename.stem.lower()
 
-    # Build SQL list literal if we have headers
-    names_sql = ", ".join("'" + c.replace("'", "''") + "'" for c in header)
-    con.execute(
-        f"""
-        CREATE OR REPLACE VIEW {name}_{year} AS
-        SELECT * FROM read_csv_auto('{str(p)}',
-            header = FALSE,
-            names  = [{names_sql}],
-            sample_size = -1
-        );
-        """
-    )
+    # Remove year pattern (4 digits at the end)
+    name = re.sub(r'_\d{4}$', '', name)
 
-    print(f"[OK] {name} -> {p}")
+    return name
 
 
 if __name__ == "__main__":
-    # Iterate over all years in CMS_DIR
-    for year_dir in CMS_DIR.iterdir():
-        if not year_dir.is_dir():
-            continue
-        year = year_dir.name
-        print(f"=== YEAR: {year} ===")
-        year_path = year_dir
-        for k in FILES:
-            csv_view(k, year_path / k, year)
+    print(f"[INFO] Recursively scanning for Parquet files in: {PARQUET_DIR}")
+    print("="*80)
 
-    print(con.sql("SHOW TABLES").df())
+    # Find all Parquet files recursively
+    parquet_files = sorted(PARQUET_DIR.rglob("*.parquet"))
+
+    if not parquet_files:
+        print(f"[WARN] No Parquet files found in {PARQUET_DIR}")
+        sys.exit(1)
+
+    print(f"[INFO] Found {len(parquet_files)} Parquet files\n")
+
+    # Group files by table type
+    file_groups = defaultdict(list)
+    for pq_file in parquet_files:
+        table_type = extract_table_type(pq_file)
+        file_groups[table_type].append(pq_file)
+
+    print(f"[INFO] Grouped into {len(file_groups)} table types\n")
+
+    # Create individual year views
+    print("Creating individual year views...")
+    print("-" * 80)
+    for pq_file in parquet_files:
+        view_name = pq_file.stem
+        con.execute(
+            f"""
+            CREATE OR REPLACE VIEW {view_name} AS
+            SELECT * FROM read_parquet('{str(pq_file)}');
+            """
+        )
+        print(f"[OK] {view_name} -> {pq_file.name}")
+
+    # Create combined views for each table type
+    print("\n" + "="*80)
+    print("Creating combined views (all years)...")
+    print("-" * 80)
+
+    for table_type, files in sorted(file_groups.items()):
+        if len(files) > 1:
+            # Multiple files - create combined view
+            file_paths = "', '".join(str(f) for f in files)
+            combined_view_name = f"{table_type}_all"
+
+            con.execute(
+                f"""
+                CREATE OR REPLACE VIEW {combined_view_name} AS
+                SELECT * FROM read_parquet(['{file_paths}']);
+                """
+            )
+            print(f"[OK] {combined_view_name} -> {len(files)} files combined")
+        else:
+            # Single file - create alias
+            single_view_name = f"{table_type}_all"
+            original_view = files[0].stem
+
+            con.execute(
+                f"""
+                CREATE OR REPLACE VIEW {single_view_name} AS
+                SELECT * FROM {original_view};
+                """
+            )
+            print(f"[OK] {single_view_name} -> alias to {original_view}")
+
+    print("\n" + "="*80)
+    print("[INFO] All views created successfully!")
+    print("="*80)
+    print("\nAvailable tables:")
+    tables_df = con.sql("SHOW TABLES").df()
+    print(tables_df)
+
+    print(f"\n[INFO] Database saved to: {DB_PATH}")
+    print("\n[INFO] Usage:")
+    print("  - Individual years: SELECT * FROM mbsf_2023")
+    print("  - All years combined: SELECT * FROM mbsf_all")
