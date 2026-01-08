@@ -1,6 +1,13 @@
+#!/usr/bin/env python3
+"""
+CMS Data Analysis Functions
+
+Functions for querying and analyzing CMS Medicare claims data stored in DuckDB.
+Includes utilities for finding patients by ICD-10 diagnosis codes.
+"""
+
 import duckdb
 import json
-import sys
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -11,11 +18,31 @@ def get_patients_with_icd10(con, codes, table="all"):
     Return a DataFrame of unique patients (DSYSRTKY)
     with any diagnosis matching the ICD-10 list.
 
-    codes:
-        ["C01", "C02"] or [("C00","C14"), ("C30","C32")]
+    Parameters:
+    -----------
+    con : duckdb.Connection
+        DuckDB connection
+    codes : list
+        List of ICD-10 codes. Can be strings for exact matches or tuples for ranges.
+        Examples: ["C01", "C02"] or [("C00","C14"), ("C30","C32")]
+    table : str
+        Which claims to search:
+        - "inp" : inpatient claims only
+        - "outp" : outpatient claims only
+        - "car" : carrier (physician) claims only
+        - "all" : all claim types (default)
 
-    table:
-        "inp", "outp", "car", or "all" (default)
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with unique DSYSRTKY (patient IDs)
+
+    Example:
+    --------
+    # Find patients with head/neck cancer codes
+    codes = [("C00", "C14"), ("C30", "C32")]
+    df = get_patients_with_icd10(con, codes, "all")
+    print(f"Found {len(df)} patients")
     """
 
     # Build SQL conditions
@@ -36,22 +63,30 @@ def get_patients_with_icd10(con, codes, table="all"):
         UNNEST([
             ICD_DGNS_CD1, ICD_DGNS_CD2, ICD_DGNS_CD3, ICD_DGNS_CD4,
             ICD_DGNS_CD5, ICD_DGNS_CD6, ICD_DGNS_CD7, ICD_DGNS_CD8,
-            ICD_DGNS_CD9, ICD_DGNS_CD10, ICD_DGNS_CD11, ICD_DGNS_CD12
+            ICD_DGNS_CD9, ICD_DGNS_CD10, ICD_DGNS_CD11, ICD_DGNS_CD12,
+            ICD_DGNS_CD13, ICD_DGNS_CD14, ICD_DGNS_CD15, ICD_DGNS_CD16,
+            ICD_DGNS_CD17, ICD_DGNS_CD18, ICD_DGNS_CD19, ICD_DGNS_CD20,
+            ICD_DGNS_CD21, ICD_DGNS_CD22, ICD_DGNS_CD23, ICD_DGNS_CD24,
+            ICD_DGNS_CD25
         ]) AS dx
         FROM {tbl}
         """
 
     # Build FROM clause based on table parameter
+    # Note: Use _all views for combined multi-year tables
     if table == "all":
         from_clause = f"""
-        {dx_cte('inp')}
+        {dx_cte('inp_claimsk_all')}
         UNION ALL
-        {dx_cte('outp')}
-        UNION ALL
-        {dx_cte('car')}
+        {dx_cte('out_claimsk_all')}
         """
-    elif table in ("inp", "outp", "car"):
-        from_clause = dx_cte(table)
+    elif table == "inp":
+        from_clause = dx_cte('inp_claimsk_all')
+    elif table == "outp":
+        from_clause = dx_cte('out_claimsk_all')
+    elif table == "car":
+        # Carrier claims not yet loaded in this database
+        raise ValueError("Carrier claims (car) not available in database. Use 'inp', 'outp', or 'all'")
     else:
         raise ValueError("table must be one of: 'inp', 'outp', 'car', 'all'")
 
@@ -68,84 +103,166 @@ def get_patients_with_icd10(con, codes, table="all"):
     return con.execute(query).fetchdf()
 
 
+def get_patients_by_diagnosis_group(con, group_name, data_source="both", diagnoses_file="diagnoses.json"):
+    """
+    Get unique patients with diagnoses from a named group in diagnoses.json.
+
+    Parameters:
+    -----------
+    con : duckdb.Connection
+        DuckDB connection
+    group_name : str
+        Name of diagnosis group from diagnoses.json (e.g., "dysphagia_core", "aspiration_pneumonitis")
+    data_source : str
+        Where to search for diagnoses:
+        - "inp" : inpatient claims only
+        - "out" : outpatient claims only
+        - "both" : both inpatient and outpatient (default)
+    diagnoses_file : str
+        Path to diagnoses.json file (default: "diagnoses.json")
+
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with unique DSYSRTKY (patient IDs)
+
+    Example:
+    --------
+    # Find patients with dysphagia from both inpatient and outpatient
+    df = get_patients_by_diagnosis_group(con, "dysphagia_core", data_source="both")
+    print(f"Found {len(df)} patients with dysphagia")
+
+    # Find patients with aspiration pneumonia from inpatient only
+    df = get_patients_by_diagnosis_group(con, "aspiration_pneumonitis", data_source="inp")
+    print(f"Found {len(df)} inpatient aspiration pneumonia cases")
+    """
+
+    # Load diagnosis codes from JSON
+    with open(diagnoses_file, 'r') as f:
+        diagnoses = json.load(f)
+
+    if group_name not in diagnoses:
+        available = [k for k in diagnoses.keys() if k != "notes"]
+        raise ValueError(f"Group '{group_name}' not found in {diagnoses_file}. Available: {available}")
+
+    group = diagnoses[group_name]
+
+    # Skip notes section
+    if group_name == "notes":
+        raise ValueError("'notes' is not a diagnosis group")
+
+    # Map data_source to table parameter
+    table_map = {
+        "inp": "inp",
+        "out": "outp",
+        "both": "all"
+    }
+
+    if data_source not in table_map:
+        raise ValueError(f"data_source must be 'inp', 'out', or 'both'. Got: {data_source}")
+
+    table = table_map[data_source]
+
+    # Handle different structures in the JSON
+    codes = []
+
+    # Simple structure with "values" key
+    if "values" in group:
+        codes.extend(group["values"])
+
+    # Complex structure (like head_neck_cancer_related with nested malignancy_range)
+    elif "malignancy_range" in group:
+        sub_group = group["malignancy_range"]
+        codes.extend(sub_group["values"])
+
+    # Nested structure (like neurologic_risk_factors)
+    else:
+        # Collect all values from nested groups
+        for value in group.values():
+            if isinstance(value, dict) and "values" in value:
+                codes.extend(value["values"])
+
+    if not codes:
+        raise ValueError(f"No diagnosis codes found for group '{group_name}'")
+
+    # Use existing function with the collected codes
+    return get_patients_with_icd10(con, codes, table)
 
 
-load_dotenv()
+# =============================================================================
+# Main execution / Example usage
+# =============================================================================
 
-HEADERS_PATH = Path("headers.json")
+if __name__ == "__main__":
+    load_dotenv()
 
-# -------------------------------------------------------------------
-# 1. CONFIGURATION
-# -------------------------------------------------------------------
+    HEADERS_PATH = Path("headers.json")
 
-# Change this path if needed
-CMS_DIR = Path(os.getenv("CMS_directory"))
-PARQUET_DIR = Path(os.getenv("parquet_directory"))
+    # Configuration
+    CMS_DIR = Path(os.getenv("CMS_directory"))
+    PARQUET_DIR = Path(os.getenv("parquet_directory"))
 
-FILES = {
-    "car":      "car_claimsk_2019.parquet",
-    "car_line": "car_line_2019.parquet",
-    "inp":      "inp_claimsk_2019.parquet",
-    "outp":     "OUT_claimsk_2019.parquet",
-    "mbsf":     "mbsf_2019.parquet",
-}
+    FILES = {
+        "car":      "car_claimsk_2019.parquet",
+        "car_line": "car_line_2019.parquet",
+        "inp":      "inp_claimsk_2019.parquet",
+        "outp":     "OUT_claimsk_2019.parquet",
+        "mbsf":     "mbsf_2019.parquet",
+    }
 
-# -------------------------------------------------------------------
-# 2. CONNECT TO DUCKDB
-# -------------------------------------------------------------------
+    # Connect to DuckDB
+    con = duckdb.connect(database="cms.duckdb", read_only=False)
+    print("[INFO] Connected to DuckDB\n")
 
-# :memory: = clean runtime DB
-# If you want persistence, replace with "cms.duckdb"
-con = duckdb.connect(database="cms.duckdb", read_only=False)
-print("[INFO] Connected to DuckDB\n")
+    # Optional – increase memory
+    con.execute("PRAGMA memory_limit='6GB';")
+    con.execute("PRAGMA threads=4;")
 
-# Optional – increase memory (you probably don't need this)
-con.execute("PRAGMA memory_limit='6GB';")
-con.execute("PRAGMA threads=4;")
+    # Register Parquet files as SQL views
+    print("[INFO] Registering Parquet files as views...")
+    for view_name, filename in FILES.items():
+        path = PARQUET_DIR / filename
+        con.execute(f"CREATE OR REPLACE VIEW {view_name} AS SELECT * FROM read_parquet('{path}');")
+        print(f"  - View '{view_name}' → {path}")
 
+    print()
 
-# -------------------------------------------------------------------
-# 3. REGISTER PARQUET FILES AS SQL VIEWS
-# -------------------------------------------------------------------
+    # Count unique patients in mbsf
+    print("[INFO] Counting unique patients in 'mbsf'...")
+    query = """
+    SELECT COUNT(DISTINCT DSYSRTKY) AS unique_patients
+    FROM mbsf;
+    """
+    result = con.execute(query).fetchone()
+    print(f"Number of unique patients in 'mbsf': {result[0]:,}")
 
-print("[INFO] Registering Parquet files as views...")
+    print()
 
-for view_name, filename in FILES.items():
-    path = PARQUET_DIR / filename
-    con.execute(f"CREATE OR REPLACE VIEW {view_name} AS SELECT * FROM read_parquet('{path}');")
-    print(f"  - View '{view_name}' → {path}")
+    # Example: Find patients with head and neck cancer
+    print("[INFO] Example: Finding patients with head/neck cancer...")
+    HNC_codes = [
+        ("C00", "C14"),
+        ("C30", "C32")
+    ]
+    df = get_patients_with_icd10(con, HNC_codes, "all")
+    print(f"Number of unique patients with head and neck cancer (HNC): {len(df):,}")
 
-print()
+    print()
 
-# -------------------------------------------------------------------
+    # Example: Using diagnosis groups from diagnoses.json
+    print("[INFO] Example: Using diagnosis groups from diagnoses.json...")
+    try:
+        # Find patients with dysphagia
+        dysphagia_patients = get_patients_by_diagnosis_group(con, "dysphagia_core", data_source="both")
+        print(f"Patients with dysphagia: {len(dysphagia_patients):,}")
 
-# Count number of unique patients in mbsf
-print("[INFO] Counting unique patients in 'mbsf'...")
+        # Find patients with aspiration pneumonitis
+        aspiration_patients = get_patients_by_diagnosis_group(con, "aspiration_pneumonitis", data_source="both")
+        print(f"Patients with aspiration pneumonitis: {len(aspiration_patients):,}")
 
-query = """
-SELECT COUNT(DISTINCT DSYSRTKY) AS unique_patients
-FROM mbsf;
-"""
+    except FileNotFoundError:
+        print("  Note: diagnoses.json not found. Skipping diagnosis group examples.")
+    except ValueError as e:
+        print(f"  Note: {e}")
 
-result = con.execute(query).fetchone()
-print(f"Number of unique patients in 'mbsf': {result[0]:,}")
-
-
-
-# #-
-# # Count number of patients with HNC
-# #- 
-
-# HNC_codes = [
-#     ("C00", "C14"),
-#     ("C30", "C32")
-# ]
-
-# df = get_patients_with_icd10(con, HNC_codes, "all")
-# print("Number of unique patients with head and neck cancer (HNC):", len(df))
-# print(df.head())
-
-
-
-
-
+    print("\n[INFO] Analysis complete!")

@@ -1,0 +1,75 @@
+{
+  "notes": {
+    "dx_format": "Dotless ICD-10 strings as typically stored in CMS claims (e.g., R1312 not R13.12).",
+    "matching": {
+      "exact": "Exact string match against DX fields",
+      "prefix": "Prefix match using LIKE (e.g., code || '%')"
+    }
+  },
+
+  "dysphagia_core": {
+    "description": "Primary exposure: dysphagia",
+    "match": "exact",
+    "values": ["R130", "R1310", "R1311", "R1312", "R1313", "R1314", "R1319"]
+  },
+
+  "aspiration_pneumonitis": {
+    "description": "Severity complication: aspiration pneumonitis",
+    "match": "exact",
+    "values": ["J690", "J698"]
+  },
+
+  "pneumonia_sensitivity": {
+    "description": "Sensitivity set: broader pneumonia",
+    "match": "prefix",
+    "values": ["J18"]
+  },
+
+  "nutritional_compromise": {
+    "description": "Markers of feeding failure/malnutrition",
+    "match": "exact",
+    "values": ["E43", "E440", "E441", "E46", "R633"]
+  },
+
+  "functional_decline_optional": {
+    "description": "Optional dependency/mobility markers",
+    "match": "exact",
+    "values": ["Z741", "Z7409"]
+  },
+
+  "head_neck_cancer_related": {
+    "description": "Stratification: head & neck cancer diagnosis/history",
+    "malignancy_range": {
+      "description": "C00-C14 (use prefix matching per 3-character stem)",
+      "match": "prefix",
+      "values": ["C00", "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C30", "C31", "C32"]
+    }
+  },
+
+  "neurologic_risk_factors": {
+    "description": "Stratification: neurologic conditions associated with dysphagia",
+    "ischemic_stroke": { "match": "prefix", "values": ["I63"] },
+    "stroke_sequelae": { "match": "prefix", "values": ["I69"] },
+    "parkinson": { "match": "exact", "values": ["G20"] },
+    "als": { "match": "exact", "values": ["G1221"] },
+    "alzheimers": { "match": "prefix", "values": ["G30"] },
+    "mci": { "match": "exact", "values": ["G3184"] }
+  },
+
+  "esophageal_contributors_secondary": {
+    "description": "Secondary contributors (not primary exposure)",
+    "match": "exact",
+    "values": ["K222", "K224"],
+    "additional_prefix": {
+      "description": "GERD",
+      "match": "prefix",
+      "values": ["K21"]
+    }
+  },
+
+  "not_primary_exposure": {
+    "description": "Do not use alone to define dysphagia",
+    "match": "exact",
+    "values": ["R638", "Z713"]
+  }
+}
