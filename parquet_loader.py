@@ -46,6 +46,37 @@ def pick_header_key(filename: str) -> str | None:
     return None
 
 
+def detect_and_skip_header(csv_path: Path, expected_header_count: int) -> bool:
+    """
+    Detect if CSV file has a header row that needs to be skipped.
+    Returns True if the file has a header row, False otherwise.
+    """
+    try:
+        # Read first line
+        with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
+            first_line = f.readline().strip()
+
+        # Count columns in first row
+        first_row_cols = len(first_line.split(','))
+
+        # If column count matches expected and first value looks like a header name
+        # (contains letters, not just numbers/dates), assume it's a header
+        first_value = first_line.split(',')[0].strip('"').strip()
+
+        # Check if it looks like a header (non-numeric, not a date pattern)
+        looks_like_header = (
+            first_row_cols == expected_header_count and
+            first_value and
+            not first_value.replace('-', '').replace('/', '').isdigit() and
+            any(c.isalpha() for c in first_value)
+        )
+
+        return looks_like_header
+    except Exception as e:
+        print(f"  [WARN] Could not detect header in {csv_path.name}: {e}")
+        return False
+
+
 for csv_path in CMS_DIR.rglob("*.csv"):
     header_key = pick_header_key(csv_path.name)
 
@@ -57,23 +88,28 @@ for csv_path in CMS_DIR.rglob("*.csv"):
     pq_path = PARQUET_DIR / f"{csv_path.stem}.parquet"
     print(f"Converting {csv_path} → {pq_path} using '{header_key}' headers")
 
+    # Always use headers from headers.json
     header_list = HEADERS[header_key]
-    if csv_path.name[:3].lower() == "inp" or csv_path.name[:3].lower() == "out":
-        header_list = None
-        print(f"Using file's own header row for {csv_path.name}")
+    expected_col_count = len(header_list)
+
+    # Detect if file has a header row that needs to be skipped
+    has_header = detect_and_skip_header(csv_path, expected_col_count)
+
+    if has_header:
+        print(f"  ✓ Detected header row - will skip and use headers.json")
+    else:
+        print(f"  ✓ No header row detected - will apply headers.json")
 
     try:
-        if header_list is not None:
-            names_sql = ", ".join("'" + c.replace("'", "''") + "'" for c in header_list)
-        else:
-            names_sql = ""
+        names_sql = ", ".join("'" + c.replace("'", "''") + "'" for c in header_list)
+
         con.execute(f"""
             COPY (
                 SELECT * FROM read_csv(
                     '{csv_path}',
                     delim=',',
                     names=[{names_sql}],
-                    header={ 'true' if header_list is None else 'false' },
+                    header={has_header},
                     quote='"',
                     escape='"',
                     compression='auto',
