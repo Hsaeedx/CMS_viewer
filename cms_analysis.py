@@ -56,8 +56,8 @@ def get_patients_with_icd10(con, codes, table="all"):
 
     where_clause = " OR ".join(conditions)
 
-    # Diagnosis extraction CTE for any table
-    def dx_cte(tbl):
+    # Diagnosis extraction CTE for inpatient/outpatient (25 diagnosis columns)
+    def dx_cte_facility(tbl):
         return f"""
         SELECT DSYSRTKY,
         UNNEST([
@@ -72,21 +72,35 @@ def get_patients_with_icd10(con, codes, table="all"):
         FROM {tbl}
         """
 
+    # Diagnosis extraction CTE for carrier (12 diagnosis columns + principal)
+    def dx_cte_carrier(tbl):
+        return f"""
+        SELECT DSYSRTKY,
+        UNNEST([
+            PRNCPAL_DGNS_CD,
+            ICD_DGNS_CD1, ICD_DGNS_CD2, ICD_DGNS_CD3, ICD_DGNS_CD4,
+            ICD_DGNS_CD5, ICD_DGNS_CD6, ICD_DGNS_CD7, ICD_DGNS_CD8,
+            ICD_DGNS_CD9, ICD_DGNS_CD10, ICD_DGNS_CD11, ICD_DGNS_CD12
+        ]) AS dx
+        FROM {tbl}
+        """
+
     # Build FROM clause based on table parameter
     # Note: Use _all views for combined multi-year tables
     if table == "all":
         from_clause = f"""
-        {dx_cte('inp_claimsk_all')}
+        {dx_cte_facility('inp_claimsk_all')}
         UNION ALL
-        {dx_cte('out_claimsk_all')}
+        {dx_cte_facility('out_claimsk_all')}
+        UNION ALL
+        {dx_cte_carrier('car_claimsk_all')}
         """
     elif table == "inp":
-        from_clause = dx_cte('inp_claimsk_all')
+        from_clause = dx_cte_facility('inp_claimsk_all')
     elif table == "outp":
-        from_clause = dx_cte('out_claimsk_all')
+        from_clause = dx_cte_facility('out_claimsk_all')
     elif table == "car":
-        # Carrier claims not yet loaded in this database
-        raise ValueError("Carrier claims (car) not available in database. Use 'inp', 'outp', or 'all'")
+        from_clause = dx_cte_carrier('car_claimsk_all')
     else:
         raise ValueError("table must be one of: 'inp', 'outp', 'car', 'all'")
 
