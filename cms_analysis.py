@@ -31,7 +31,7 @@ def get_patients_with_icd10(con, codes, table="all"):
         - "outp" : outpatient claims only
         - "car" : carrier (physician) claims only
         - "all" : all claim types (default)
-
+, 
     Returns:
     --------
     pandas.DataFrame

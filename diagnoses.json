@@ -10,7 +10,7 @@
   "dysphagia_core": {
     "description": "Primary exposure: dysphagia",
     "match": "exact",
-    "values": ["R130", "R1310", "R1311", "R1312", "R1313", "R1314", "R1319"]
+    "values": ["R130", "R1310", "R1311", "R1312", "R1313", "R1314", "R1319", "I69391", "I69991", "K220","K222", "K224", "K225"]
   },
 
   "aspiration_pneumonitis": {
@@ -42,7 +42,7 @@
     "malignancy_range": {
       "description": "C00-C14 (use prefix matching per 3-character stem)",
       "match": "prefix",
-      "values": ["C00", "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C30", "C31", "C32"]
+      "values": ["C00", "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C30", "C31", "C32", "C770", "Z8521", "Z8522"]
     }
   },
 
