@@ -10,7 +10,7 @@
   "dysphagia_core": {
     "description": "Primary exposure: dysphagia",
     "match": "exact",
-    "values": ["R130", "R1310", "R1311", "R1312", "R1313", "R1314", "R1319", "I69391", "I69991", "K220","K222", "K224", "K225"]
+    "values": ["R13", "I69091", "I69191", "I69291", "I69391", "I69891", "I69991", "K220","K222", "K224", "K225"]
   },
 
   "aspiration_pneumonitis": {
@@ -71,5 +71,17 @@
     "description": "Do not use alone to define dysphagia",
     "match": "exact",
     "values": ["R638", "Z713"]
+  },
+
+  "diabetes": {
+    "description": "Diabetes mellitus codes for comorbidity adjustment",
+    "match": "prefix",
+    "values": ["E08", "E09", "E10", "E11", "E13"]
+  },
+
+  "afib": {
+    "description": "Atrial fibrillation only (excludes atrial flutter)",
+    "match": "prefix",
+    "values": ["I480", "I481", "I482", "I4891"]
   }
 }
