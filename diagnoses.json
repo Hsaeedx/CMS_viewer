@@ -83,5 +83,12 @@
     "description": "Atrial fibrillation only (excludes atrial flutter)",
     "match": "prefix",
     "values": ["I480", "I481", "I482", "I4891"]
+  },
+
+  "stroke_core": {
+    "description": "Acute stroke core (I60/I61/I63/I64)",
+    "match": "prefix",
+    "values": ["I60", "I61", "I63", "I64", "I69","G45", "G46"]
   }
+
 }

@@ -17,7 +17,7 @@ load_dotenv()
 
 CMS_DIR = Path(os.getenv("CMS_directory"))
 PARQUET_DIR = Path(os.getenv("parquet_directory"))
-HEADERS_PATH = Path("headers.json")
+HEADERS_PATH = Path(os.getenv("headers_path", "headers.json"))
 
 if not CMS_DIR or not CMS_DIR.exists():
     print("Error: CMS_directory is not set or does not exist.")
@@ -88,8 +88,8 @@ for csv_path in CMS_DIR.rglob("*.csv"):
     pq_path = PARQUET_DIR / f"{csv_path.stem}.parquet"
     print(f"Converting {csv_path} → {pq_path} using '{header_key}' headers")
 
-    # Always use headers from headers.json
-    header_list = HEADERS[header_key]
+    # Always use headers from headers.json (extract keys from the dict)
+    header_list = list(HEADERS[header_key].keys())
     expected_col_count = len(header_list)
 
     # Detect if file has a header row that needs to be skipped

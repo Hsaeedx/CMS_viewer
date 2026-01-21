@@ -111,19 +111,40 @@ def build_icd_where_clause_carrier(codes):
     return " OR ".join(col_conditions)
 
 
+def build_icd_where_clause_snf(codes):
+    """Build WHERE clause checking all diagnosis columns for SNF claims.
+    SNF has same structure as inpatient: PRNCPAL_DGNS_CD + ADMTG_DGNS_CD + ICD_DGNS_CD1-25."""
+    cols = ["PRNCPAL_DGNS_CD", "ADMTG_DGNS_CD"] + [f"ICD_DGNS_CD{i}" for i in range(1, 26)]
+    col_conditions = [build_icd_where_clause_for_column(codes, col) for col in cols]
+    return " OR ".join(col_conditions)
+
+
+def build_icd_where_clause_hha(codes):
+    """Build WHERE clause checking all diagnosis columns for HHA claims.
+    HHA has same structure as outpatient: PRNCPAL_DGNS_CD + ICD_DGNS_CD1-25 (no ADMTG_DGNS_CD)."""
+    cols = ["PRNCPAL_DGNS_CD"] + [f"ICD_DGNS_CD{i}" for i in range(1, 26)]
+    col_conditions = [build_icd_where_clause_for_column(codes, col) for col in cols]
+    return " OR ".join(col_conditions)
+
+
 def build_cohort_table_for_year(con, table_name, codes, year, sample_filter=None):
     """
     Create a cohort table for a specific year using pure SQL.
     Uses direct column checks (no UNNEST) for better performance.
+    Searches across all claim types: inpatient, outpatient, carrier, SNF, and HHA.
     """
     inpatient_where = build_icd_where_clause_inpatient(codes)
     outpatient_where = build_icd_where_clause_outpatient(codes)
     carrier_where = build_icd_where_clause_carrier(codes)
+    snf_where = build_icd_where_clause_snf(codes)
+    hha_where = build_icd_where_clause_hha(codes)
 
     # Build table names for specific year
     inp_table = f"inp_claimsk_{year}"
     out_table = f"out_claimsk_{year}"
     car_table = f"car_claimsk_{year}"
+    snf_table = f"snf_claimsk_{year}"
+    hha_table = f"hha_claimsk_{year}"
     mbsf_table = f"mbsf_{year}"
 
     # Check which tables exist for this year
@@ -151,6 +172,18 @@ def build_cohort_table_for_year(con, table_name, codes, year, sample_filter=None
         unions.append(f"""
             SELECT DISTINCT DSYSRTKY FROM {car_table}
             WHERE {carrier_where}
+        """)
+
+    if snf_table.lower() in available_tables:
+        unions.append(f"""
+            SELECT DISTINCT DSYSRTKY FROM {snf_table}
+            WHERE {snf_where}
+        """)
+
+    if hha_table.lower() in available_tables:
+        unions.append(f"""
+            SELECT DISTINCT DSYSRTKY FROM {hha_table}
+            WHERE {hha_where}
         """)
 
     if not unions:
@@ -189,10 +222,13 @@ def build_cohort_table_all_years(con, table_name, codes, sample_filter=None):
     """
     Create a cohort table across all years using pure SQL.
     Uses the _all combined views with direct column checks (no UNNEST).
+    Searches across all claim types: inpatient, outpatient, carrier, SNF, and HHA.
     """
     inpatient_where = build_icd_where_clause_inpatient(codes)
     outpatient_where = build_icd_where_clause_outpatient(codes)
     carrier_where = build_icd_where_clause_carrier(codes)
+    snf_where = build_icd_where_clause_snf(codes)
+    hha_where = build_icd_where_clause_hha(codes)
 
     # Build enrollment filter
     enrollment_filter = "m.A_MO_CNT = '12' AND m.B_MO_CNT = '12' AND m.HMO_MO = '0'"
@@ -214,6 +250,12 @@ def build_cohort_table_all_years(con, table_name, codes, sample_filter=None):
         UNION
         SELECT DISTINCT DSYSRTKY FROM car_claimsk_all
         WHERE {carrier_where}
+        UNION
+        SELECT DISTINCT DSYSRTKY FROM snf_claimsk_all
+        WHERE {snf_where}
+        UNION
+        SELECT DISTINCT DSYSRTKY FROM hha_claimsk_all
+        WHERE {hha_where}
     )
     SELECT DISTINCT d.DSYSRTKY
     FROM dx_patients d
