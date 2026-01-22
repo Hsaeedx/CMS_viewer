@@ -37,7 +37,7 @@
     "values": ["Z741", "Z7409"]
   },
 
-  "head_neck_cancer_related": {
+  "head_neck_cancer": {
     "description": "Stratification: head & neck cancer diagnosis/history",
     "malignancy_range": {
       "description": "C00-C14 (use prefix matching per 3-character stem)",
@@ -89,6 +89,12 @@
     "description": "Acute stroke core (I60/I61/I63/I64)",
     "match": "prefix",
     "values": ["I60", "I61", "I63", "I64", "I69","G45", "G46"]
+  },
+
+  "myocardial_infarction": {
+    "description": "Acute myocardial infarction (I21/I22)",
+    "match": "prefix",
+    "values": ["I21", "I22"]
   }
 
 }

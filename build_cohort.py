@@ -352,11 +352,11 @@ Available diagnosis groups (from diagnoses.json):
                 print(f"  No claims tables for {year}")
 
         # Build total table using _all views
-        print(f"\n[TOTAL] Building combined cohort from all years...")
-        total_table_name = f"{args.diagnosis}_all{sample_suffix}"
-        total_count = build_cohort_table_all_years(con, total_table_name, codes, sample_filter)
-        results[total_table_name] = total_count
-        print(f"  Created '{total_table_name}': {total_count:,} patients")
+        # print(f"\n[TOTAL] Building combined cohort from all years...")
+        # total_table_name = f"{args.diagnosis}_all{sample_suffix}"
+        # total_count = build_cohort_table_all_years(con, total_table_name, codes, sample_filter)
+        # results[total_table_name] = total_count
+        # print(f"  Created '{total_table_name}': {total_count:,} patients")
 
     # Summary
     print("\n" + "=" * 60)
