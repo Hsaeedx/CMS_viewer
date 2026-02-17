@@ -97,6 +97,11 @@ def build_icd_where_clause_inpatient(codes):
     return " OR ".join(col_conditions)
 
 
+def build_icd_where_primary_clause_inpatient(codes):
+    """Build WHERE clause checking only primary diagnosis column for inpatient claims."""
+    return build_icd_where_clause_for_column(codes, "PRNCPAL_DGNS_CD")
+
+
 def build_icd_where_clause_outpatient(codes):
     """Build WHERE clause checking all diagnosis columns for outpatient claims."""
     cols = ["PRNCPAL_DGNS_CD"] + [f"ICD_DGNS_CD{i}" for i in range(1, 26)]

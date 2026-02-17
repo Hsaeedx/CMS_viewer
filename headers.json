@@ -850,5 +850,8 @@
         "CLM_NEXT_GNRTN_ACO_IND_CD4": "Claim Next Generation Accountable Care Organization Indicator Code 4",
         "CLM_NEXT_GNRTN_ACO_IND_CD5": "Claim Next Generation Accountable Care Organization Indicator Code 5",
         "ACO_ID_NUM": "Claim Accountable Care Organization (ACO) Identification Number"
+    },
+    "out_revenuek" {
+        
     }
 }
