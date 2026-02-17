@@ -6,95 +6,306 @@
       "prefix": "Prefix match using LIKE (e.g., code || '%')"
     }
   },
-
-  "dysphagia_core": {
+  "dysphagia": {
     "description": "Primary exposure: dysphagia",
-    "match": "exact",
-    "values": ["R13", "I69091", "I69191", "I69291", "I69391", "I69891", "I69991", "K220","K222", "K224", "K225"]
+    "values": [
+      "R13",
+      "I69091",
+      "I69191",
+      "I69291",
+      "I69391",
+      "I69891",
+      "I69991",
+      "K220",
+      "K222",
+      "K224",
+      "K225"
+    ]
   },
-
   "aspiration_pneumonitis": {
     "description": "Severity complication: aspiration pneumonitis",
-    "match": "exact",
-    "values": ["J690", "J698"]
+    "values": [
+      "J690",
+      "J698"
+    ]
   },
-
   "pneumonia_sensitivity": {
     "description": "Sensitivity set: broader pneumonia",
-    "match": "prefix",
-    "values": ["J18"]
+    "values": [
+      "J18"
+    ]
   },
-
   "nutritional_compromise": {
     "description": "Markers of feeding failure/malnutrition",
-    "match": "exact",
-    "values": ["E43", "E440", "E441", "E46", "R633"]
+    "values": [
+      "E43",
+      "E440",
+      "E441",
+      "E46",
+      "R633"
+    ]
   },
-
   "functional_decline_optional": {
     "description": "Optional dependency/mobility markers",
-    "match": "exact",
-    "values": ["Z741", "Z7409"]
+    "values": [
+      "Z741",
+      "Z7409"
+    ]
   },
-
   "head_neck_cancer": {
     "description": "Stratification: head & neck cancer diagnosis/history",
     "malignancy_range": {
       "description": "C00-C14 (use prefix matching per 3-character stem)",
-      "match": "prefix",
-      "values": ["C00", "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C30", "C31", "C32", "C770", "Z8521", "Z8522"]
+      "values": [
+        "C00",
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "C07",
+        "C08",
+        "C09",
+        "C10",
+        "C11",
+        "C12",
+        "C13",
+        "C14",
+        "C30",
+        "C31",
+        "C32",
+        "C770",
+        "Z8521",
+        "Z8522"
+      ]
     }
   },
-
-  "neurologic_risk_factors": {
-    "description": "Stratification: neurologic conditions associated with dysphagia",
-    "ischemic_stroke": { "match": "prefix", "values": ["I63"] },
-    "stroke_sequelae": { "match": "prefix", "values": ["I69"] },
-    "parkinson": { "match": "exact", "values": ["G20"] },
-    "als": { "match": "exact", "values": ["G1221"] },
-    "alzheimers": { "match": "prefix", "values": ["G30"] },
-    "mci": { "match": "exact", "values": ["G3184"] }
-  },
-
   "esophageal_contributors_secondary": {
     "description": "Secondary contributors (not primary exposure)",
-    "match": "exact",
-    "values": ["K222", "K224"],
+    "values": [
+      "K222",
+      "K224"
+    ],
     "additional_prefix": {
       "description": "GERD",
-      "match": "prefix",
-      "values": ["K21"]
+      "values": [
+        "K21"
+      ]
     }
   },
-
   "not_primary_exposure": {
     "description": "Do not use alone to define dysphagia",
-    "match": "exact",
-    "values": ["R638", "Z713"]
+    "values": [
+      "R638",
+      "Z713"
+    ]
   },
-
   "diabetes": {
     "description": "Diabetes mellitus codes for comorbidity adjustment",
-    "match": "prefix",
-    "values": ["E08", "E09", "E10", "E11", "E13"]
+    "values": [
+      "E08",
+      "E09",
+      "E10",
+      "E11",
+      "E13"
+    ]
   },
-
   "afib": {
     "description": "Atrial fibrillation only (excludes atrial flutter)",
-    "match": "prefix",
-    "values": ["I480", "I481", "I482", "I4891"]
+    "values": [
+      "I480",
+      "I481",
+      "I482",
+      "I4891"
+    ]
   },
-
-  "stroke_core": {
+  "stroke": {
     "description": "Acute stroke core (I60/I61/I63/I64)",
-    "match": "prefix",
-    "values": ["I60", "I61", "I63", "I64", "I69","G45", "G46"]
+    "values": [
+      "I60",
+      "I61",
+      "I63",
+      "I64",
+      "I69",
+      "G45",
+      "G46"
+    ],
+    "comparison": [
+      "G450",
+      "G451",
+      "G452",
+      "G458",
+      "G459",
+      "G460",
+      "G461",
+      "G462",
+      "G463",
+      "G464",
+      "G465",
+      "G466",
+      "G467",
+      "G468",
+      "G9731",
+      "G9732",
+      "I6000",
+      "I6001",
+      "I6002",
+      "I6010",
+      "I6011",
+      "I6012",
+      "I6020",
+      "I6021",
+      "I6022",
+      "I6030",
+      "I6031",
+      "I6032",
+      "I604",
+      "I6050",
+      "I6051",
+      "I6052",
+      "I606",
+      "I607",
+      "I608",
+      "I609",
+      "I610",
+      "I611",
+      "I612",
+      "I613",
+      "I614",
+      "I615",
+      "I616",
+      "I618",
+      "I619",
+      "I6300",
+      "I63011",
+      "I63012",
+      "I63013",
+      "I63019",
+      "I6302",
+      "I63031",
+      "I63032",
+      "I63039",
+      "I6309",
+      "I6310",
+      "I63111",
+      "I63112",
+      "I63113",
+      "I63119",
+      "I6312",
+      "I63131",
+      "I63132",
+      "I63133",
+      "I63139",
+      "I6319",
+      "I6320",
+      "I63211",
+      "I63212",
+      "I63213",
+      "I63219",
+      "I6322",
+      "I63231",
+      "I63232",
+      "I63233",
+      "I63239",
+      "I6329",
+      "I6330",
+      "I63311",
+      "I63312",
+      "I63313",
+      "I63319",
+      "I63321",
+      "I63322",
+      "I63323",
+      "I63329",
+      "I63331",
+      "I63332",
+      "I63333",
+      "I63339",
+      "I63341",
+      "I63342",
+      "I63343",
+      "I63349",
+      "I6339",
+      "I6340",
+      "I63411",
+      "I63412",
+      "I63413",
+      "I63419",
+      "I63421",
+      "I63422",
+      "I63423",
+      "I63429",
+      "I63431",
+      "I63432",
+      "I63433",
+      "I63439",
+      "I63441",
+      "I63442",
+      "I63443",
+      "I63449",
+      "I6349",
+      "I6350",
+      "I63511",
+      "I63512",
+      "I63513",
+      "I63519",
+      "I63521",
+      "I63522",
+      "I63523",
+      "I63529",
+      "I63531",
+      "I63532",
+      "I63533",
+      "I63539",
+      "I63541",
+      "I63542",
+      "I63543",
+      "I63549",
+      "I6359",
+      "I636",
+      "I638",
+      "I6381",
+      "I6389",
+      "I639",
+      "I6601",
+      "I6602",
+      "I6603",
+      "I6609",
+      "I6611",
+      "I6612",
+      "I6613",
+      "I6619",
+      "I6621",
+      "I6622",
+      "I6623",
+      "I6629",
+      "I663",
+      "I668",
+      "I669",
+      "I67841",
+      "I67848",
+      "I6789",
+      "I97810",
+      "I97811",
+      "I97820",
+      "I97821"
+    ]
   },
-
   "myocardial_infarction": {
     "description": "Acute myocardial infarction (I21/I22)",
-    "match": "prefix",
-    "values": ["I21", "I22"]
-  }
+    "values": [
+      "I21",
+      "I22"
+    ]
+  },
 
+  "OPSCC" : {
+    "values" : [
+      "C01",
+      "C10",
+      "C140",
+      "C09"
+    ]
+  }
 }
