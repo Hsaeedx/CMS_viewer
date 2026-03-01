@@ -1,0 +1,118 @@
+{
+  "dysphagia": {
+    "diagnosis": [
+      {
+        "system": "ICD10CM",
+        "code": "R131",
+        "description": "Dysphagia"
+      }
+    ]
+  },
+  "gastrostomy_tube": {
+    "procedure": [
+      {
+        "system": "CPT",
+        "code": "1007398",
+        "description": "Gastrostomy, open"
+      },
+      {
+        "system": "HCPCS",
+        "code": "B4087",
+        "description": "Gastrostomy/jejunostomy tube, standard, any material, any type, each"
+      },
+      {
+        "system": "HCPCS",
+        "code": "B4088",
+        "description": "Gastrostomy/jejunostomy tube, low-profile, any material, any type, each"
+      },
+      {
+        "system": "CPT",
+        "code": "43246",
+        "description": "Esophagogastroduodenoscopy, flexible, transoral; with directed placement of percutaneous gastrostomy tube"
+      },
+      {
+        "system": "CPT",
+        "code": "49440",
+        "description": "Insertion of gastrostomy tube, percutaneous, under fluoroscopic guidance"
+      },
+      {
+        "system": "SNOMED",
+        "code": "736158002",
+        "description": "Insertion of gastrostomy tube"
+      },
+      {
+        "system": "SNOMED",
+        "code": "29952004",
+        "description": "Percutaneous placement of gastrostomy tube"
+      },
+      {
+        "system": "SNOMED",
+        "code": "116015001",
+        "description": "Placement of gastrostomy tube"
+      },
+      {
+        "system": "SNOMED",
+        "code": "116017009",
+        "description": "Endoscopic placement of gastrostomy tube"
+      },
+      {
+        "system": "ICD10PCS",
+        "code": "0DH63UZ",
+        "description": "Insertion of Feeding Device into Stomach, Percutaneous Approach"
+      },
+      {
+        "system": "ICD10PCS",
+        "code": "0DH60UZ",
+        "description": "Insertion of Feeding Device into Stomach, Open Approach"
+      }
+    ],
+    "diagnosis": [
+      {
+        "system": "ICD10CM",
+        "code": "Z931",
+        "description": "Gastrostomy status"
+      }
+    ]
+  },
+  "tracheostomy": {
+    "diagnosis": [
+      {
+        "system": "ICD10CM",
+        "code": "Z930",
+        "description": "Tracheostomy status"
+      }
+    ],
+    "procedure": [
+      {
+        "system": "CPT",
+        "code": "1005887",
+        "description": "Tracheostomy, emergency procedure"
+      },
+      {
+        "system": "CPT",
+        "code": "31610",
+        "description": "Tracheostomy, fenestration procedure with skin flaps"
+      },
+      {
+        "system": "CPT",
+        "code": "31603",
+        "description": "Tracheostomy, emergency procedure, transtracheal"
+      },
+      {
+        "system": "CPT",
+        "code": "1014613",
+        "description": "Tracheostomy, planned (separate procedure)"
+      },
+      {
+        "system": "CPT",
+        "code": "31600",
+        "description": "Tracheostomy, planned (separate procedure)"
+      },
+      {
+        "system": "CPT",
+        "code": "31612",
+        "description": "Tracheal puncture, percutaneous with transtracheal aspiration and/or injection"
+      }
+    ]
+  }
+}
