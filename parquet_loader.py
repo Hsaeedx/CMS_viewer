@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Convert CSV / CSV.GZ files to Parquet using DuckDB, filtering to only rows whose DSYSRTKY
-appears in keys.txt.
+Convert CSV / CSV.GZ files to Parquet using DuckDB, optionally filtering to only rows
+whose DSYSRTKY appears in keys.txt.
 
+- If keys.txt is not found, all rows are converted (no filtering)
 - Uses headers.json when a matching header set is found
 - Detects whether the CSV already has a header row and skips it if present
 - Increases max_line_size to tolerate very long CMS lines
@@ -35,9 +36,9 @@ if not HEADERS_PATH.exists():
     print(f"Error: headers.json file not found at {HEADERS_PATH}")
     sys.exit(1)
 
-if not KEYS_PATH.exists():
-    print(f"Error: keys file not found at {KEYS_PATH}")
-    sys.exit(1)
+USE_KEYS = KEYS_PATH.exists()
+if not USE_KEYS:
+    print(f"Note: keys file not found at {KEYS_PATH} — all rows will be converted (no filtering)")
 
 with HEADERS_PATH.open("r") as f:
     HEADERS = json.load(f)  # e.g., {"inp_claimsk": {...}, "out_claimsk": {...}, ...}
@@ -49,16 +50,17 @@ con.execute("PRAGMA preserve_insertion_order=false;")
 con.execute(f"PRAGMA temp_directory='{(PARQUET_DIR / 'tmp_duckdb').as_posix()}';")
 con.execute("PRAGMA memory_limit='6GB';")
 
-# ---- load keys table once ----
-con.execute("DROP TABLE IF EXISTS keys;")
-con.execute(f"""
-    CREATE TEMP TABLE keys AS
-    SELECT column0 AS dsysrtky
-    FROM read_csv('{KEYS_PATH.as_posix()}', header=false, delim=',', all_varchar=true);
-""")
-con.execute("CREATE INDEX IF NOT EXISTS keys_dsysrtky_idx ON keys(dsysrtky);")
-n_keys = con.execute("SELECT COUNT(*) FROM keys;").fetchone()[0]
-print(f"Loaded {n_keys:,} keys from {KEYS_PATH}")
+# ---- load keys table once (if keys file exists) ----
+if USE_KEYS:
+    con.execute("DROP TABLE IF EXISTS keys;")
+    con.execute(f"""
+        CREATE TEMP TABLE keys AS
+        SELECT column0 AS dsysrtky
+        FROM read_csv('{KEYS_PATH.as_posix()}', header=false, delim=',', all_varchar=true);
+    """)
+    con.execute("CREATE INDEX IF NOT EXISTS keys_dsysrtky_idx ON keys(dsysrtky);")
+    n_keys = con.execute("SELECT COUNT(*) FROM keys;").fetchone()[0]
+    print(f"Loaded {n_keys:,} keys from {KEYS_PATH}")
 
 def pick_header_key(filename: str) -> str | None:
     """Try to find a key like 'inp_claimsk', 'out_claimsk', 'car_line', etc. in the filename."""
@@ -112,8 +114,8 @@ for csv_path in csv_files:
     # Always use headers from headers.json (extract keys from the dict)
     header_list = list(HEADERS[header_key].keys())
 
-    # Skip files that do not have the key column
-    if not header_has_col(header_list, KEY_COL):
+    # Skip files that do not have the key column (only matters when filtering is active)
+    if USE_KEYS and not header_has_col(header_list, KEY_COL):
         print(f"⏭️ Skipping {csv_path.name} (no {KEY_COL} column in {header_key} headers)")
         continue
 
@@ -127,7 +129,8 @@ for csv_path in csv_files:
         out_stem = csv_path.stem
 
     pq_path = PARQUET_DIR / f"{out_stem}.parquet"
-    print(f"Converting {csv_path} → {pq_path} using '{header_key}' headers (filtering on {KEY_COL})")
+    filter_note = f"filtering on {KEY_COL}" if USE_KEYS else "no key filter"
+    print(f"Converting {csv_path} → {pq_path} using '{header_key}' headers ({filter_note})")
 
     expected_col_count = len(header_list)
 
@@ -160,11 +163,7 @@ for csv_path in csv_files:
                     sample_size=-1,
                     strict_mode=false
                 ) AS src
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM keys k
-                    WHERE k.dsysrtky = src.{KEY_COL}
-                )
+                {"WHERE EXISTS (SELECT 1 FROM keys k WHERE k.dsysrtky = src." + KEY_COL + ")" if USE_KEYS else ""}
             )
             TO '{pq_path.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD);
         """)
@@ -172,4 +171,4 @@ for csv_path in csv_files:
         print(f"[ERROR] Failed on {csv_path}: {e}")
         continue
 
-print("Done converting all CSVs to filtered Parquet.")
+print("Done converting all CSVs to Parquet.")
