@@ -1,0 +1,40 @@
+DROP TABLE IF EXISTS hnc_dx_raw;
+
+CREATE TABLE hnc_dx_raw AS
+
+SELECT
+    DSYSRTKY,
+    TRY_STRPTIME(COALESCE(NULLIF(ADMSN_DT,''), THRU_DT), '%Y%m%d') AS dx_date,
+    'inp' AS source,
+    SUBSTRING(PRNCPAL_DGNS_CD,1,3) AS dx_prefix,
+    YEAR(TRY_STRPTIME(COALESCE(NULLIF(ADMSN_DT,''), THRU_DT), '%Y%m%d')) AS claim_year
+FROM inp_claimsk_all
+WHERE
+    SUBSTRING(PRNCPAL_DGNS_CD,1,3) BETWEEN 'C00' AND 'C14'
+    OR SUBSTRING(PRNCPAL_DGNS_CD,1,3) IN ('C30','C31','C32')
+
+UNION ALL
+
+SELECT
+    DSYSRTKY,
+    TRY_STRPTIME(THRU_DT, '%Y%m%d') AS dx_date,
+    'out' AS source,
+    SUBSTRING(PRNCPAL_DGNS_CD,1,3) AS dx_prefix,
+    YEAR(TRY_STRPTIME(THRU_DT, '%Y%m%d')) AS claim_year
+FROM out_claimsk_all
+WHERE
+    SUBSTRING(PRNCPAL_DGNS_CD,1,3) BETWEEN 'C00' AND 'C14'
+    OR SUBSTRING(PRNCPAL_DGNS_CD,1,3) IN ('C30','C31','C32')
+
+UNION ALL
+
+SELECT
+    DSYSRTKY,
+    TRY_STRPTIME(THRU_DT, '%Y%m%d') AS dx_date,
+    'car' AS source,
+    SUBSTRING(PRNCPAL_DGNS_CD,1,3) AS dx_prefix,
+    YEAR(TRY_STRPTIME(THRU_DT, '%Y%m%d')) AS claim_year
+FROM car_claimsk_all
+WHERE
+    SUBSTRING(PRNCPAL_DGNS_CD,1,3) BETWEEN 'C00' AND 'C14'
+    OR SUBSTRING(PRNCPAL_DGNS_CD,1,3) IN ('C30','C31','C32');

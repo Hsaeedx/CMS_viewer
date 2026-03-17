@@ -9,5 +9,8 @@ __pycache__/
 .claude/
 *_analysis/
 *.txt
-*/
 *.docx
+*.pptx
+*.xlsx
+*.png
+*.csv

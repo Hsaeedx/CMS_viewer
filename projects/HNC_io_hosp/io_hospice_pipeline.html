@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IO Hospice Study | Cohort Assembly Pipeline</title>
+    <style>
+        :root {
+            --primary: #1e3a5f;
+            --secondary: #3d5a80;
+            --accent: #ee6c4d;
+            --light: #f8f9fa;
+            --border: #dee2e6;
+            --success: #28a745;
+            --warning: #ffc107;
+            --code-bg: #f4f4f4;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #fff;
+        }
+        
+        h1 {
+            color: var(--primary);
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5rem;
+            margin-top: 2rem;
+        }
+        
+        h2 {
+            color: var(--secondary);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3rem;
+            margin-top: 2.5rem;
+        }
+        
+        h3 {
+            color: var(--primary);
+            margin-top: 1.5rem;
+        }
+        
+        h4 {
+            color: #555;
+            margin-top: 1.2rem;
+            font-size: 1rem;
+        }
+        
+        .header-block {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+        
+        .header-block h1 {
+            color: white;
+            border: none;
+            margin: 0;
+        }
+        
+        .header-block p {
+            margin: 0.5rem 0 0 0;
+            opacity: 0.9;
+        }
+        
+        .step-box {
+            background: var(--light);
+            border-left: 4px solid var(--secondary);
+            padding: 1rem 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .step-box.inclusion {
+            border-left-color: var(--success);
+        }
+        
+        .step-box.exclusion {
+            border-left-color: var(--accent);
+        }
+        
+        .step-number {
+            display: inline-block;
+            background: var(--secondary);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+        
+        .step-box.inclusion .step-number {
+            background: var(--success);
+        }
+        
+        .step-box.exclusion .step-number {
+            background: var(--accent);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+        
+        th, td {
+            border: 1px solid var(--border);
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        
+        th {
+            background: var(--primary);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tr:nth-child(even) {
+            background: var(--light);
+        }
+        
+        tr:hover {
+            background: #e9ecef;
+        }
+        
+        code {
+            background: var(--code-bg);
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            color: #d63384;
+        }
+        
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+        
+        pre code {
+            background: none;
+            color: inherit;
+            padding: 0;
+        }
+        
+        .note {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 0.8rem 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+        }
+        
+        .note::before {
+            content: "⚠️ Note: ";
+            font-weight: bold;
+        }
+        
+        .tip {
+            background: #d1ecf1;
+            border: 1px solid #17a2b8;
+            padding: 0.8rem 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+        }
+        
+        .tip::before {
+            content: "💡 Tip: ";
+            font-weight: bold;
+        }
+        
+        .file-ref {
+            background: #e7f3ff;
+            border: 1px solid #b3d7ff;
+            padding: 0.8rem 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+        }
+        
+        .file-ref::before {
+            content: "📁 File: ";
+            font-weight: bold;
+        }
+        
+        .code-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        
+        .code-list table {
+            margin: 0;
+        }
+        
+        .toc {
+            background: var(--light);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+        
+        .toc h3 {
+            margin-top: 0;
+        }
+        
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .toc li {
+            padding: 0.3rem 0;
+        }
+        
+        .toc a {
+            color: var(--secondary);
+            text-decoration: none;
+        }
+        
+        .toc a:hover {
+            color: var(--accent);
+            text-decoration: underline;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .badge-carrier { background: #cfe2ff; color: #084298; }
+        .badge-outpatient { background: #d1e7dd; color: #0f5132; }
+        .badge-inpatient { background: #f8d7da; color: #842029; }
+        .badge-hospice { background: #fff3cd; color: #664d03; }
+        .badge-mbsf { background: #e2d9f3; color: #432874; }
+        
+        .flow-diagram {
+            background: var(--light);
+            padding: 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            margin: 1.5rem 0;
+        }
+        
+        .flow-box {
+            display: inline-block;
+            background: white;
+            border: 2px solid var(--secondary);
+            padding: 0.8rem 1.2rem;
+            border-radius: 6px;
+            margin: 0.5rem;
+            min-width: 200px;
+        }
+        
+        .flow-box.excluded {
+            border-color: var(--accent);
+            background: #fff5f3;
+        }
+        
+        .flow-arrow {
+            display: block;
+            font-size: 1.5rem;
+            color: var(--secondary);
+            margin: 0.3rem 0;
+        }
+        
+        @media print {
+            body {
+                max-width: 100%;
+                padding: 1rem;
+            }
+            
+            .code-list {
+                max-height: none;
+                overflow: visible;
+            }
+            
+            pre {
+                white-space: pre-wrap;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header-block">
+    <h1>IO Hospice Study: Cohort Assembly Pipeline</h1>
+    <p>Aggressiveness of End-of-Life Care Among Medicare Beneficiaries with Head and Neck Cancer Who Received Immune Checkpoint Inhibitors</p>
+    <p><strong>Study Period:</strong> January 1, 2017 – June 30, 2023 | <strong>Version:</strong> 1.4 | <strong>Last Updated:</strong> March 2026 | <strong>Final N:</strong> 2,766</p>
+</div>
+
+<div class="toc">
+    <h3>Table of Contents</h3>
+    <ul>
+        <li><a href="#data-sources">1. Data Sources & File Structure</a></li>
+        <li><a href="#cohort-assembly">2. Cohort Assembly Pipeline</a></li>
+        <li><a href="#icd10-codes">3. ICD-10 Diagnosis Codes (HNC)</a></li>
+        <li><a href="#hcpcs-codes">4. HCPCS Codes (IO Agents)</a></li>
+        <li><a href="#cpt-codes">5. CPT Codes (Curative-Intent Therapy)</a></li>
+        <li><a href="#io-episodes">6. IO Episode Algorithm</a></li>
+        <li><a href="#derived-variables">7. Derived Variables</a></li>
+        <li><a href="#outcomes">8. Outcome Definitions</a></li>
+        <li><a href="#covariates">9. Covariate Specifications</a></li>
+        <li><a href="#final-dataset">10. Final Analytic Dataset Structure</a></li>
+        <li><a href="#analysis-plan">11. Analysis Plan</a></li>
+    </ul>
+</div>
+
+<!-- ============================================ -->
+<h1 id="data-sources">1. Data Sources & File Structure</h1>
+<!-- ============================================ -->
+
+<h3>Required Medicare Files</h3>
+<table>
+    <tr>
+        <th>File</th>
+        <th>Badge</th>
+        <th>Key Variables Used</th>
+        <th>Purpose</th>
+    </tr>
+    <tr>
+        <td>Master Beneficiary Summary File (MBSF)</td>
+        <td><span class="badge badge-mbsf">MBSF</span></td>
+        <td>DSYSRTKY, DEATH_DT, AGE, RFRNC_YR, SEX, RACE, STATE_CD, CNTY_CD, OREC, DUAL_01–DUAL_12, HMOIND1–HMOIND12, MDCR_STUS_CD_01–_12</td>
+        <td>Demographics, eligibility, death date</td>
+    </tr>
+    <tr>
+        <td>Carrier Claims (car_claimsk_all)</td>
+        <td><span class="badge badge-carrier">CARRIER</span></td>
+        <td>DSYSRTKY, THRU_DT, PRNCPAL_DGNS_CD, ICD_DGNS_CD1–ICD_DGNS_CD12</td>
+        <td>HNC diagnoses (dx codes at claim level)</td>
+    </tr>
+    <tr>
+        <td>Carrier Line (car_linek_all)</td>
+        <td><span class="badge badge-carrier">CARRIER</span></td>
+        <td>DSYSRTKY, THRU_DT, HCPCS_CD, LINE_ICD_DGNS_CD</td>
+        <td>IO claims, chemotherapy, radiation CPTs (HCPCS at line level only)</td>
+    </tr>
+    <tr>
+        <td>Outpatient Claims (out_claimsk_all)</td>
+        <td><span class="badge badge-outpatient">OUTPATIENT</span></td>
+        <td>DSYSRTKY, THRU_DT, PRNCPAL_DGNS_CD, ICD_DGNS_CD1–ICD_DGNS_CD25</td>
+        <td>HNC diagnoses (dx codes at claim level)</td>
+    </tr>
+    <tr>
+        <td>Outpatient Revenue (out_revenuek_all)</td>
+        <td><span class="badge badge-outpatient">OUTPATIENT</span></td>
+        <td>DSYSRTKY, THRU_DT, REV_DT, HCPCS_CD</td>
+        <td>IO claims, radiation, surgery CPTs (HCPCS at revenue line level only)</td>
+    </tr>
+    <tr>
+        <td>Inpatient (inp_claimsk_all)</td>
+        <td><span class="badge badge-inpatient">INPATIENT</span></td>
+        <td>DSYSRTKY, ADMSN_DT, DSCHRGDT, STUS_CD, PRNCPAL_DGNS_CD, ICD_DGNS_CD1–ICD_DGNS_CD25, ICD_PRCDR_CD1–ICD_PRCDR_CD25, PRCDR_DT1–PRCDR_DT25</td>
+        <td>Surgical procedures, in-hospital death</td>
+    </tr>
+    <tr>
+        <td>Hospice (hosp_claimsk_all)</td>
+        <td><span class="badge badge-hospice">HOSPICE</span></td>
+        <td>DSYSRTKY, HSPCSTRT, THRU_DT, DSCHRGDT, HOSPCPRD, STUS_CD</td>
+        <td>Hospice enrollment, length of stay (HSPCSTRT = hospice election date)</td>
+    </tr>
+</table>
+
+<h3>Study Period Parameters</h3>
+<pre><code>STUDY_START_DATE = '2017-01-01'  # First eligible death date
+STUDY_END_DATE   = '2023-06-30'  # Last eligible death date (H1 2023; out_revenuek_2023 only covers H1)
+LOOKBACK_MONTHS  = 24            # Claims lookback window from death
+MIN_AGE_AT_DEATH = 66            # Ensures 12 months Medicare eligibility
+</code></pre>
+
+
+<!-- ============================================ -->
+<h1 id="cohort-assembly">2. Cohort Assembly Pipeline</h1>
+<!-- ============================================ -->
+
+<p>Execute steps sequentially. Each step filters the cohort from the previous step. Track counts at each step for CONSORT diagram.</p>
+
+<!-- STEP 1 -->
+<div class="step-box inclusion">
+    <h3><span class="step-number">1</span> Starting Population: Medicare FFS Decedents</h3>
+    <p><strong>Source:</strong> <span class="badge badge-mbsf">MBSF</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>SELECT DISTINCT DSYSRTKY
+FROM mbsf_all
+WHERE TRY_STRPTIME(DEATH_DT, '%Y%m%d') BETWEEN '2017-01-01' AND '2023-06-30'
+  AND DEATH_DT IS NOT NULL
+  AND DEATH_DT &lt;&gt; ''</code></pre>
+    <p><strong>Output:</strong> All Medicare decedents in study period → <code>N = (not separately counted; combined with Step 2)</code></p>
+</div>
+
+<!-- STEP 2 -->
+<div class="step-box inclusion">
+    <h3><span class="step-number">2</span> Age ≥66 at Death</h3>
+    <p><strong>Source:</strong> <span class="badge badge-mbsf">MBSF</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>-- AGE = age as of January 1 of RFRNC_YR; adjust for death year
+age_at_death = CAST(AGE AS INTEGER) + (YEAR(TRY_STRPTIME(DEATH_DT,'%Y%m%d')) - CAST(RFRNC_YR AS INTEGER))
+
+INCLUDE WHERE age_at_death >= 66</code></pre>
+    <p><strong>Rationale:</strong> Ensures ≥12 months Part A/B eligibility (Medicare enrollment at 65)</p>
+    <p><strong>Output:</strong> <code>N = 14,507,067</code> | <strong>Excluded:</strong> age &lt;66 (combined with Step 1 in pipeline)</p>
+</div>
+
+<!-- STEP 3 -->
+<div class="step-box inclusion">
+    <h3><span class="step-number">3</span> ≥2 HNC Claims on Separate Dates</h3>
+    <p><strong>Source:</strong> <span class="badge badge-carrier">CARRIER</span> + <span class="badge badge-outpatient">OUTPATIENT</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>-- Extract all HNC diagnosis claims within 24 months of death
+-- Use ICD-10 codes from Section 3 (ALL eligible subsites, including those to be excluded later)
+-- Diagnoses are at CLAIM level (not line/revenue level)
+
+WITH hnc_claims AS (
+    SELECT c.DSYSRTKY, TRY_STRPTIME(c.THRU_DT,'%Y%m%d') AS dx_date, c.PRNCPAL_DGNS_CD AS dx_cd
+    FROM car_claimsk_all c
+    JOIN io_decedents d ON c.DSYSRTKY = d.DSYSRTKY
+    WHERE SUBSTRING(c.PRNCPAL_DGNS_CD,1,3) BETWEEN 'C00' AND 'C14'
+       OR SUBSTRING(c.PRNCPAL_DGNS_CD,1,3) IN ('C30','C31','C32')
+    -- repeat for ICD_DGNS_CD1-12 and ADMTG_DGNS_CD in inpatient
+
+    UNION ALL
+
+    SELECT c.DSYSRTKY, TRY_STRPTIME(c.THRU_DT,'%Y%m%d') AS dx_date, c.PRNCPAL_DGNS_CD AS dx_cd
+    FROM out_claimsk_all c
+    JOIN io_decedents d ON c.DSYSRTKY = d.DSYSRTKY
+    WHERE SUBSTRING(c.PRNCPAL_DGNS_CD,1,3) BETWEEN 'C00' AND 'C14'
+       OR SUBSTRING(c.PRNCPAL_DGNS_CD,1,3) IN ('C30','C31','C32')
+)
+
+SELECT DSYSRTKY, MIN(dx_date) AS first_hnc_dx_date
+FROM hnc_claims
+WHERE dx_date BETWEEN (death_dt - INTERVAL 24 MONTH) AND death_dt
+GROUP BY DSYSRTKY
+HAVING COUNT(DISTINCT dx_date) >= 2</code></pre>
+    <p><strong>Rationale:</strong> Two claims on separate dates reduces false positives from rule-out diagnoses</p>
+    <p><strong>Output:</strong> <code>N = 48,449</code> | <strong>Excluded:</strong> <code>n = 14,458,618</code> (&lt;2 HNC claims or no HNC claims)</p>
+</div>
+
+<!-- STEP 4 -->
+<div class="step-box exclusion">
+    <h3><span class="step-number">4</span> Restrict to Eligible HNC Subsites (Mucosal SCC)</h3>
+    <p><strong>Source:</strong> <span class="badge badge-carrier">CARRIER</span> + <span class="badge badge-outpatient">OUTPATIENT</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>-- Determine predominant subsite using 4-char ICD-10 prefix (SUBSTR(code,1,4))
+-- EXCLUDE if predominant subsite is in excluded list (3-char prefix match)
+
+EXCLUDED_SUBSITES (3-char prefix):
+    C11  -- Nasopharynx (distinct biology, EBV-associated)
+    C07  -- Parotid gland
+    C08  -- Other salivary glands
+    C30  -- Nasal cavity
+    C31  -- Paranasal sinuses
+    C44  -- Cutaneous malignancies
+
+SUBSITE CATEGORIES (4-char precision):
+    Oral Cavity:   C00x, C01, C02x (except C024), C03x, C04x,
+                   C050/C058/C059, C06x, C148
+    Oropharynx:    C024 (lingual tonsil), C051/C052 (soft palate),
+                   C09x, C10x, C140/C142
+    Hypopharynx:   C12, C13x
+    Larynx:        C32x
+    Other HNC:     All remaining (C14x NEC, C43x, C49x, C76x, C77x)</code></pre>
+    <p><strong>Note:</strong> C43/C49/C76/C77 (melanoma, connective tissue, lymph node H&amp;N) are captured and categorized as Other HNC.</p>
+    <p><strong>Output:</strong> <code>N = 119,415 unique dx records → 40,890 confirmed patients post-step-3</code> | <strong>Excluded:</strong> <code>n = 7,559</code> (nasopharynx, salivary, sinonasal, cutaneous)</p>
+</div>
+
+<!-- STEP 5 -->
+<div class="step-box inclusion">
+    <h3><span class="step-number">5</span> ≥1 IO Claim Within 24 Months of Death</h3>
+    <p><strong>Source:</strong> <span class="badge badge-carrier">CARRIER</span> + <span class="badge badge-outpatient">OUTPATIENT</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>IO_HCPCS_CODES = ['J9271', 'J9299']  -- Pembrolizumab, Nivolumab
+-- NOTE: HCPCS codes are at LINE level only — must use car_linek_all and out_revenuek_all
+
+WITH io_claims AS (
+    SELECT l.DSYSRTKY, TRY_STRPTIME(l.THRU_DT,'%Y%m%d') AS io_date, l.HCPCS_CD
+    FROM car_linek_all l
+    JOIN io_decedents d ON l.DSYSRTKY = d.DSYSRTKY
+    WHERE l.HCPCS_CD IN ('J9271', 'J9299')
+
+    UNION ALL
+
+    SELECT r.DSYSRTKY, TRY_STRPTIME(COALESCE(NULLIF(r.REV_DT,''), r.THRU_DT),'%Y%m%d') AS io_date, r.HCPCS_CD
+    FROM out_revenuek_all r
+    JOIN io_decedents d ON r.DSYSRTKY = d.DSYSRTKY
+    WHERE r.HCPCS_CD IN ('J9271', 'J9299')
+)
+
+SELECT DSYSRTKY, io_date, HCPCS_CD
+FROM io_claims
+WHERE io_date BETWEEN (death_dt - INTERVAL 24 MONTH) AND death_dt
+
+INCLUDE WHERE DSYSRTKY IN (SELECT DISTINCT DSYSRTKY FROM io_claims)</code></pre>
+    <p><strong>Output:</strong> <code>N = 7,123</code> | <strong>Excluded:</strong> <code>n = 33,767</code> (no IO claims within 24 months of death)</p>
+</div>
+
+<!-- STEP 6 -->
+<div class="step-box inclusion">
+    <h3><span class="step-number">6</span> Apply IO Episode Algorithm</h3>
+    <p><strong>Source:</strong> IO claims from Step 5</p>
+    <p><strong>Logic:</strong> See <a href="#io-episodes">Section 6: IO Episode Algorithm</a> for full implementation</p>
+    <pre><code>-- Gap-based algorithm: ≥120 days between claims = new episode
+-- Identify LAST episode (closest to death) as index palliative episode
+
+GAP_THRESHOLD_DAYS = 120
+
+-- Output: last_io_episode_start_date, last_io_episode_end_date for each BENE_ID</code></pre>
+    <p><strong>Output:</strong> All patients assigned to their last IO episode → <code>N = 7,123</code> (no exclusions; every patient with IO claims is assigned an episode)</p>
+</div>
+
+<!-- STEP 7 -->
+<div class="step-box inclusion">
+    <h3><span class="step-number">7</span> Curative-Intent Therapy Before Last IO Episode</h3>
+    <p><strong>Source:</strong> <span class="badge badge-carrier">CARRIER</span> + <span class="badge badge-outpatient">OUTPATIENT</span> + <span class="badge badge-inpatient">INPATIENT</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>-- Evidence of ≥1 curative-intent therapy BEFORE start of last IO episode:
+--   (a) Surgery (see Section 5 for CPT codes)
+--   (b) Radiation therapy
+--   (c) Platinum chemotherapy
+
+-- Curative intent = surgery OR radiation (platinum alone not sufficient)
+curative_therapy_date = MIN(
+    surgery_date,      -- CPT codes (glossectomy, pharyngectomy, laryngectomy, neck dissection)
+                       -- OR inpatient ICD-10-PCS (0CT_/0CB_ = mouth/throat resection,
+                       --    0CTR_ = laryngectomy, 07T0/07B0 = neck dissection)
+    radiation_date     -- CPT 77401-77425, 77427, 77431-77499
+                       -- OR inpatient ICD-10-PCS D9% (H&N radiation body system)
+)
+
+INCLUDE WHERE curative_therapy_date &lt; last_io_episode_start_date</code></pre>
+    <p><strong>Rationale:</strong> Identifies patients with recurrent/metastatic disease (not de novo metastatic). Platinum chemotherapy alone is excluded as a curative-intent criterion — only surgery or radiation qualifies.</p>
+    <p><strong>Output:</strong> <code>N = 3,827</code> | <strong>Excluded:</strong> <code>n = 2,120</code> (no prior curative-intent therapy before last IO episode)</p>
+    <p class="note" style="margin-top:0.5rem"><strong>Note:</strong> ESRD exclusion, geographic data filter, and continuous FFS enrollment checks (Steps 9–11) are applied jointly with this step in the pipeline, bringing the cohort from N = 7,123 → N = 5,947 (excluded n = 1,176 for ESRD/geography/MA enrollment) → N = 3,827.</p>
+</div>
+
+<!-- STEP 8 -->
+<div class="step-box inclusion">
+    <h3><span class="step-number">8</span> ≥180 Days from First HNC Diagnosis to Last IO Episode</h3>
+    <p><strong>Source:</strong> Derived from Steps 3 and 6</p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>days_dx_to_io = last_io_episode_start_date - first_hnc_dx_date
+
+INCLUDE WHERE days_dx_to_io >= 180</code></pre>
+    <p><strong>Rationale:</strong> Ensures IO represents recurrent/metastatic treatment, not concurrent with primary therapy</p>
+    <p><strong>Output:</strong> <code>N = 2,766</code> | <strong>Excluded:</strong> <code>n = 1,061</code> (&lt;180 days from first HNC dx to last IO episode start)</p>
+</div>
+
+<!-- STEP 9 -->
+<div class="step-box exclusion">
+    <h3><span class="step-number">9</span> Exclude ESRD Entitlement</h3>
+    <p><strong>Source:</strong> <span class="badge badge-mbsf">MBSF</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>EXCLUDE WHERE OREC = '2'  -- ESRD as original Medicare entitlement reason (LDS column: OREC)</code></pre>
+    <p><strong>Rationale:</strong> Atypical Medicare population with distinct utilization patterns</p>
+    <p><strong>Output:</strong> Applied jointly with Steps 10–11 → combined exclusions of <code>n = 1,176</code> (ESRD, missing geography, or MA enrollment); intermediate N = <code>5,947</code></p>
+</div>
+
+<!-- STEP 10 -->
+<div class="step-box exclusion">
+    <h3><span class="step-number">10</span> Valid Geographic Data</h3>
+    <p><strong>Source:</strong> <span class="badge badge-mbsf">MBSF</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>EXCLUDE WHERE STATE_CD IS NULL
+          OR STATE_CD = ''
+          OR CNTY_CD IS NULL
+          OR CNTY_CD = ''</code></pre>
+    <p><strong>Rationale:</strong> Required for geographic analyses and rural/urban classification</p>
+    <p><strong>Output:</strong> See Step 9 — applied jointly; patients with non-US addresses or CT county restructuring assigned <code>urban_rural = 'Unknown'</code> and retained in cohort.</p>
+</div>
+
+<!-- STEP 11 -->
+<div class="step-box exclusion">
+    <h3><span class="step-number">11</span> Continuous FFS Enrollment (No MA)</h3>
+    <p><strong>Source:</strong> <span class="badge badge-mbsf">MBSF</span></p>
+    <p><strong>Logic:</strong></p>
+    <pre><code>-- Check HMO indicator and Medicare status for each month in 24-month lookback
+-- HMOINDXX: '0' = FFS, other = MA enrollment
+-- MDCR_STUS_CD_XX: '10','11' = Part A+B, '20','21' = Part B only
+
+WITH monthly_enroll AS (
+    SELECT m.DSYSRTKY,
+           make_date(CAST(m.RFRNC_YR AS INTEGER), mth, 1) AS month_start,
+           CASE mth
+               WHEN 1 THEN m.HMOIND1   WHEN 2  THEN m.HMOIND2
+               WHEN 3 THEN m.HMOIND3   WHEN 4  THEN m.HMOIND4
+               WHEN 5 THEN m.HMOIND5   WHEN 6  THEN m.HMOIND6
+               WHEN 7 THEN m.HMOIND7   WHEN 8  THEN m.HMOIND8
+               WHEN 9 THEN m.HMOIND9   WHEN 10 THEN m.HMOIND10
+               WHEN 11 THEN m.HMOIND11 WHEN 12 THEN m.HMOIND12
+           END AS hmo_ind,
+           CASE mth
+               WHEN 1 THEN m.MDCR_STUS_CD_01   WHEN 2  THEN m.MDCR_STUS_CD_02
+               WHEN 3 THEN m.MDCR_STUS_CD_03   WHEN 4  THEN m.MDCR_STUS_CD_04
+               WHEN 5 THEN m.MDCR_STUS_CD_05   WHEN 6  THEN m.MDCR_STUS_CD_06
+               WHEN 7 THEN m.MDCR_STUS_CD_07   WHEN 8  THEN m.MDCR_STUS_CD_08
+               WHEN 9 THEN m.MDCR_STUS_CD_09   WHEN 10 THEN m.MDCR_STUS_CD_10
+               WHEN 11 THEN m.MDCR_STUS_CD_11  WHEN 12 THEN m.MDCR_STUS_CD_12
+           END AS mdcr_stus
+    FROM mbsf_all m,
+    UNNEST([1,2,3,4,5,6,7,8,9,10,11,12]) AS t(mth)
+)
+
+-- Require FFS (hmo_ind='0') AND enrolled (mdcr_stus IN ('10','11','20','21'))
+-- for ALL 24 months in lookback window before death_dt
+-- Need mbsf_all rows from death year AND up to 2 prior years for full 24-month lookback
+
+EXCLUDE WHERE any month in [death_dt - 24 months, death_dt] has hmo_ind &lt;&gt; '0'
+           OR mdcr_stus NOT IN ('10','11','20','21')</code></pre>
+    <p><strong>Rationale:</strong> MA claims are incomplete; ensures full claims visibility</p>
+    <p><strong>Output:</strong> See Step 9 — applied jointly; combined exclusions n = 1,176.</p>
+</div>
+
+<!-- FINAL -->
+<div class="step-box" style="border-left-color: var(--primary); background: #e7f3ff;">
+    <h3>✓ FINAL ANALYTIC COHORT</h3>
+    <p><strong>Definition:</strong> Medicare FFS decedents with mucosal HNC who received palliative IO after prior curative-intent therapy</p>
+    <p><strong>Final N:</strong> <code>2,766</code> | Hospice enrolled: <code>1,840 (66.5%)</code> | In-hospital death: <code>see Table 2</code></p>
+</div>
+
+
+<!-- ============================================ -->
+<h1 id="icd10-codes">3. ICD-10 Diagnosis Codes (Head and Neck Cancer)</h1>
+<!-- ============================================ -->
+
+<h3>INCLUDED Subsites (Mucosal Squamous Cell Carcinoma)</h3>
+
+<h4>Oral Cavity (C00–C06)</h4>
+<div class="code-list">
+<table>
+    <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
+    <tr><td>C00.0</td><td>Malignant neoplasm of external upper lip</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C00.1</td><td>Malignant neoplasm of external lower lip</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C00.2</td><td>Malignant neoplasm of external lip, unspecified</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C00.3</td><td>Malignant neoplasm of upper lip, inner aspect</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C00.4</td><td>Malignant neoplasm of lower lip, inner aspect</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C00.5</td><td>Malignant neoplasm of lip, unspecified, inner aspect</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C00.6</td><td>Malignant neoplasm of commissure of lip, unspecified</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C00.8</td><td>Malignant neoplasm of overlapping sites of lip</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C00.9</td><td>Malignant neoplasm of lip, unspecified</td><td>Oral Cavity - Lip</td></tr>
+    <tr><td>C02.0</td><td>Malignant neoplasm of dorsal surface of tongue</td><td>Oral Cavity - Tongue</td></tr>
+    <tr><td>C02.1</td><td>Malignant neoplasm of border of tongue</td><td>Oral Cavity - Tongue</td></tr>
+    <tr><td>C02.2</td><td>Malignant neoplasm of ventral surface of tongue</td><td>Oral Cavity - Tongue</td></tr>
+    <tr><td>C02.3</td><td>Malignant neoplasm of anterior two-thirds of tongue, part unspecified</td><td>Oral Cavity - Tongue</td></tr>
+    <tr><td>C02.4</td><td>Malignant neoplasm of lingual tonsil</td><td>Oral Cavity - Tongue</td></tr>
+    <tr><td>C02.8</td><td>Malignant neoplasm of overlapping sites of tongue</td><td>Oral Cavity - Tongue</td></tr>
+    <tr><td>C02.9</td><td>Malignant neoplasm of tongue, unspecified</td><td>Oral Cavity - Tongue</td></tr>
+    <tr><td>C03.0</td><td>Malignant neoplasm of upper gum</td><td>Oral Cavity - Gum</td></tr>
+    <tr><td>C03.1</td><td>Malignant neoplasm of lower gum</td><td>Oral Cavity - Gum</td></tr>
+    <tr><td>C03.9</td><td>Malignant neoplasm of gum, unspecified</td><td>Oral Cavity - Gum</td></tr>
+    <tr><td>C04.0</td><td>Malignant neoplasm of anterior floor of mouth</td><td>Oral Cavity - Floor of Mouth</td></tr>
+    <tr><td>C04.1</td><td>Malignant neoplasm of lateral floor of mouth</td><td>Oral Cavity - Floor of Mouth</td></tr>
+    <tr><td>C04.8</td><td>Malignant neoplasm of overlapping sites of floor of mouth</td><td>Oral Cavity - Floor of Mouth</td></tr>
+    <tr><td>C04.9</td><td>Malignant neoplasm of floor of mouth, unspecified</td><td>Oral Cavity - Floor of Mouth</td></tr>
+    <tr><td>C05.0</td><td>Malignant neoplasm of hard palate</td><td>Oral Cavity - Palate</td></tr>
+    <tr><td>C05.1</td><td>Malignant neoplasm of soft palate</td><td>Oral Cavity - Palate</td></tr>
+    <tr><td>C05.2</td><td>Malignant neoplasm of uvula</td><td>Oral Cavity - Palate</td></tr>
+    <tr><td>C05.8</td><td>Malignant neoplasm of overlapping sites of palate</td><td>Oral Cavity - Palate</td></tr>
+    <tr><td>C05.9</td><td>Malignant neoplasm of palate, unspecified</td><td>Oral Cavity - Palate</td></tr>
+    <tr><td>C06.0</td><td>Malignant neoplasm of cheek mucosa</td><td>Oral Cavity - Other</td></tr>
+    <tr><td>C06.1</td><td>Malignant neoplasm of vestibule of mouth</td><td>Oral Cavity - Other</td></tr>
+    <tr><td>C06.2</td><td>Malignant neoplasm of retromolar area</td><td>Oral Cavity - Other</td></tr>
+    <tr><td>C06.80</td><td>Malignant neoplasm of overlapping sites of unspecified parts of mouth</td><td>Oral Cavity - Other</td></tr>
+    <tr><td>C06.89</td><td>Malignant neoplasm of overlapping sites of other parts of mouth</td><td>Oral Cavity - Other</td></tr>
+    <tr><td>C06.9</td><td>Malignant neoplasm of mouth, unspecified</td><td>Oral Cavity - Other</td></tr>
+</table>
+</div>
+
+<h4>Oropharynx (C01, C09–C10)</h4>
+<div class="code-list">
+<table>
+    <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
+    <tr><td>C01</td><td>Malignant neoplasm of base of tongue</td><td>Oropharynx - Base of Tongue</td></tr>
+    <tr><td>C09.0</td><td>Malignant neoplasm of tonsillar fossa</td><td>Oropharynx - Tonsil</td></tr>
+    <tr><td>C09.1</td><td>Malignant neoplasm of tonsillar pillar (anterior)(posterior)</td><td>Oropharynx - Tonsil</td></tr>
+    <tr><td>C09.8</td><td>Malignant neoplasm of overlapping sites of tonsil</td><td>Oropharynx - Tonsil</td></tr>
+    <tr><td>C09.9</td><td>Malignant neoplasm of tonsil, unspecified</td><td>Oropharynx - Tonsil</td></tr>
+    <tr><td>C10.0</td><td>Malignant neoplasm of vallecula</td><td>Oropharynx - Other</td></tr>
+    <tr><td>C10.1</td><td>Malignant neoplasm of anterior surface of epiglottis</td><td>Oropharynx - Other</td></tr>
+    <tr><td>C10.2</td><td>Malignant neoplasm of lateral wall of oropharynx</td><td>Oropharynx - Other</td></tr>
+    <tr><td>C10.3</td><td>Malignant neoplasm of posterior wall of oropharynx</td><td>Oropharynx - Other</td></tr>
+    <tr><td>C10.4</td><td>Malignant neoplasm of branchial cleft</td><td>Oropharynx - Other</td></tr>
+    <tr><td>C10.8</td><td>Malignant neoplasm of overlapping sites of oropharynx</td><td>Oropharynx - Other</td></tr>
+    <tr><td>C10.9</td><td>Malignant neoplasm of oropharynx, unspecified</td><td>Oropharynx - Other</td></tr>
+</table>
+</div>
+
+<h4>Hypopharynx (C12–C13)</h4>
+<div class="code-list">
+<table>
+    <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
+    <tr><td>C12</td><td>Malignant neoplasm of pyriform sinus</td><td>Hypopharynx</td></tr>
+    <tr><td>C13.0</td><td>Malignant neoplasm of postcricoid region</td><td>Hypopharynx</td></tr>
+    <tr><td>C13.1</td><td>Malignant neoplasm of aryepiglottic fold, hypopharyngeal aspect</td><td>Hypopharynx</td></tr>
+    <tr><td>C13.2</td><td>Malignant neoplasm of posterior wall of hypopharynx</td><td>Hypopharynx</td></tr>
+    <tr><td>C13.8</td><td>Malignant neoplasm of overlapping sites of hypopharynx</td><td>Hypopharynx</td></tr>
+    <tr><td>C13.9</td><td>Malignant neoplasm of hypopharynx, unspecified</td><td>Hypopharynx</td></tr>
+</table>
+</div>
+
+<h4>Larynx (C32)</h4>
+<div class="code-list">
+<table>
+    <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
+    <tr><td>C32.0</td><td>Malignant neoplasm of glottis</td><td>Larynx - Glottis</td></tr>
+    <tr><td>C32.1</td><td>Malignant neoplasm of supraglottis</td><td>Larynx - Supraglottis</td></tr>
+    <tr><td>C32.2</td><td>Malignant neoplasm of subglottis</td><td>Larynx - Subglottis</td></tr>
+    <tr><td>C32.3</td><td>Malignant neoplasm of laryngeal cartilage</td><td>Larynx - Other</td></tr>
+    <tr><td>C32.8</td><td>Malignant neoplasm of overlapping sites of larynx</td><td>Larynx - Other</td></tr>
+    <tr><td>C32.9</td><td>Malignant neoplasm of larynx, unspecified</td><td>Larynx - Other</td></tr>
+</table>
+</div>
+
+<h4>Other/Ill-Defined (C14)</h4>
+<div class="code-list">
+<table>
+    <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
+    <tr><td>C14.0</td><td>Malignant neoplasm of pharynx, unspecified</td><td>Other HNC</td></tr>
+    <tr><td>C14.2</td><td>Malignant neoplasm of Waldeyer's ring</td><td>Other HNC</td></tr>
+    <tr><td>C14.8</td><td>Malignant neoplasm of overlapping sites of lip, oral cavity and pharynx</td><td>Other HNC</td></tr>
+</table>
+</div>
+
+<h3>EXCLUDED Subsites</h3>
+<div class="code-list">
+<table>
+    <tr><th>ICD-10 Range</th><th>Description</th><th>Exclusion Rationale</th></tr>
+    <tr><td>C11.0 – C11.9</td><td>Nasopharynx</td><td>Distinct biology (EBV-associated), different treatment paradigm, IO not FDA-approved</td></tr>
+    <tr><td>C07</td><td>Parotid gland</td><td>Salivary gland malignancies - distinct histology</td></tr>
+    <tr><td>C08.0 – C08.9</td><td>Other major salivary glands (submandibular, sublingual)</td><td>Salivary gland malignancies - distinct histology</td></tr>
+    <tr><td>C30.0 – C30.1</td><td>Nasal cavity</td><td>Sinonasal malignancies - distinct biology</td></tr>
+    <tr><td>C31.0 – C31.9</td><td>Paranasal sinuses (maxillary, ethmoid, frontal, sphenoid)</td><td>Sinonasal malignancies - distinct biology</td></tr>
+    <tr><td>C44.0 – C44.9</td><td>Skin of head/neck</td><td>Cutaneous malignancies (different treatment, cemiplimab indication)</td></tr>
+</table>
+</div>
+
+<div class="note">
+    Check ALL diagnosis code positions (ICD_DGNS_CD1 through ICD_DGNS_CD25 in Carrier; ICD_DGNS_CD1 through ICD_DGNS_CD25 in Outpatient).
+</div>
+
+
+<!-- ============================================ -->
+<h1 id="hcpcs-codes">4. HCPCS Codes (IO and Chemotherapy Agents)</h1>
+<!-- ============================================ -->
+
+<h3>Primary IO Agents (Inclusion Criteria)</h3>
+<table>
+    <tr><th>HCPCS</th><th>Agent</th><th>FDA Indication</th><th>Dosing</th></tr>
+    <tr><td><code>J9271</code></td><td>Pembrolizumab</td><td>R/M HNSCC (Aug 2016 2L+; Jun 2019 1L)</td><td>200mg q3w or 400mg q6w</td></tr>
+    <tr><td><code>J9299</code></td><td>Nivolumab</td><td>R/M HNSCC (Nov 2016, post-platinum)</td><td>240mg q2w or 480mg q4w</td></tr>
+</table>
+
+<h3>IO Agents for Sensitivity Analysis (Not FDA-approved for HNSCC)</h3>
+<table>
+    <tr><th>HCPCS</th><th>Agent</th><th>Notes</th></tr>
+    <tr><td><code>J9119</code></td><td>Cemiplimab</td><td>Approved for cutaneous SCC, not mucosal HNSCC</td></tr>
+    <tr><td><code>J9173</code></td><td>Durvalumab</td><td>Not approved for HNSCC</td></tr>
+    <tr><td><code>J9228</code></td><td>Ipilimumab</td><td>CTLA-4 inhibitor; not approved for HNSCC</td></tr>
+</table>
+
+<h3>Platinum Chemotherapy (Curative-Intent & Chemo-IO)</h3>
+<table>
+    <tr><th>HCPCS</th><th>Agent</th><th>Use</th></tr>
+    <tr><td><code>J9060</code></td><td>Cisplatin, 10mg</td><td>Curative-intent CRT; first-line chemo-IO (KEYNOTE-048)</td></tr>
+    <tr><td><code>J9045</code></td><td>Carboplatin, 50mg</td><td>Curative-intent CRT (cisplatin-ineligible); first-line chemo-IO</td></tr>
+</table>
+
+<h3>5-Fluorouracil (Sensitivity Analysis Only)</h3>
+<table>
+    <tr><th>HCPCS</th><th>Agent</th><th>Notes</th></tr>
+    <tr><td><code>J9190</code></td><td>Fluorouracil, 500mg</td><td>Include in sensitivity analysis for expanded chemo-IO definition</td></tr>
+</table>
+
+
+<!-- ============================================ -->
+<h1 id="cpt-codes">5. CPT Codes (Curative-Intent Therapy)</h1>
+<!-- ============================================ -->
+
+<h3>Radiation Therapy</h3>
+<div class="code-list">
+<table>
+    <tr><th>CPT Range</th><th>Description</th></tr>
+    <tr><td>77401 – 77425</td><td>Radiation treatment delivery (superficial, orthovoltage, megavoltage)</td></tr>
+    <tr><td>77427</td><td>Radiation treatment management, 5 treatments</td></tr>
+    <tr><td>77431 – 77499</td><td>Radiation treatment management, IMRT, IGRT, SRS/SBRT, brachytherapy</td></tr>
+</table>
+</div>
+
+<div class="tip">
+    Radiation codes are found in <span class="badge badge-carrier">CARRIER</span> and <span class="badge badge-outpatient">OUTPATIENT</span> files using HCPCS_CD field.
+</div>
+
+<h3>Platinum Chemotherapy</h3>
+<p>See HCPCS codes above: <code>J9060</code> (cisplatin), <code>J9045</code> (carboplatin)</p>
+
+<h3>Head and Neck Surgical Resection</h3>
+<p>Curated list of CPT codes indicating curative-intent surgical resection. <strong>EXCLUDES</strong> diagnostic biopsies, tracheostomy, feeding tube placement, and minor procedures.</p>
+
+<h4>Oral Cavity / Tongue Resection</h4>
+<div class="code-list">
+<table>
+    <tr><th>CPT</th><th>Description</th></tr>
+    <tr><td>41110</td><td>Excision of lesion of tongue without closure</td></tr>
+    <tr><td>41112</td><td>Excision of lesion of tongue with closure, anterior two-thirds</td></tr>
+    <tr><td>41113</td><td>Excision of lesion of tongue with closure, posterior one-third</td></tr>
+    <tr><td>41114</td><td>Excision of lesion of tongue with closure; with local tongue flap</td></tr>
+    <tr><td>41116</td><td>Excision, lesion of floor of mouth</td></tr>
+    <tr><td>41120</td><td>Glossectomy; less than one-half tongue</td></tr>
+    <tr><td>41130</td><td>Glossectomy; hemiglossectomy</td></tr>
+    <tr><td>41135</td><td>Glossectomy; partial, with unilateral radical neck dissection</td></tr>
+    <tr><td>41140</td><td>Glossectomy; complete or total, with or without tracheostomy</td></tr>
+    <tr><td>41145</td><td>Glossectomy; complete or total, with unilateral radical neck dissection</td></tr>
+    <tr><td>41150</td><td>Glossectomy; composite procedure with resection floor of mouth and mandibular resection</td></tr>
+    <tr><td>41153</td><td>Glossectomy; composite procedure with resection floor of mouth, with suprahyoid neck dissection</td></tr>
+    <tr><td>41155</td><td>Glossectomy; composite procedure with resection floor of mouth, mandibular resection, and radical neck dissection</td></tr>
+</table>
+</div>
+
+<h4>Mandible / Maxilla Resection</h4>
+<div class="code-list">
+<table>
+    <tr><th>CPT</th><th>Description</th></tr>
+    <tr><td>21044</td><td>Excision of malignant tumor from mandible</td></tr>
+    <tr><td>21045</td><td>Excision of malignant tumor from mandible; radical resection</td></tr>
+    <tr><td>21046</td><td>Excision of benign tumor or cyst of mandible; requiring intra-oral osteotomy</td></tr>
+    <tr><td>21047</td><td>Excision of benign tumor or cyst of mandible; requiring extra-oral osteotomy and partial mandibulectomy</td></tr>
+    <tr><td>21048</td><td>Excision of benign tumor or cyst of maxilla; requiring intra-oral osteotomy</td></tr>
+    <tr><td>21049</td><td>Excision of benign tumor or cyst of maxilla; requiring extra-oral osteotomy and partial maxillectomy</td></tr>
+    <tr><td>21030</td><td>Excision of benign tumor or cyst of maxilla or zygoma</td></tr>
+    <tr><td>21032</td><td>Excision of maxillary torus palatinus</td></tr>
+    <tr><td>21034</td><td>Excision of malignant tumor of maxilla or zygoma</td></tr>
+</table>
+</div>
+
+<h4>Pharyngeal Resection</h4>
+<div class="code-list">
+<table>
+    <tr><th>CPT</th><th>Description</th></tr>
+    <tr><td>42104</td><td>Excision, lesion of palate, uvula; without closure</td></tr>
+    <tr><td>42106</td><td>Excision, lesion of palate, uvula; with simple primary closure</td></tr>
+    <tr><td>42107</td><td>Excision, lesion of palate, uvula; with local flap closure</td></tr>
+    <tr><td>42120</td><td>Resection of palate or extensive resection of lesion</td></tr>
+    <tr><td>42140</td><td>Uvulectomy, excision of uvula</td></tr>
+    <tr><td>42145</td><td>Palatopharyngoplasty (uvulopalatopharyngoplasty)</td></tr>
+    <tr><td>42410</td><td>Excision of parotid tumor or parotid gland; lateral lobe, without nerve dissection</td></tr>
+    <tr><td>42415</td><td>Excision of parotid tumor or parotid gland; lateral lobe, with dissection and preservation of facial nerve</td></tr>
+    <tr><td>42420</td><td>Excision of parotid tumor or parotid gland; total, with dissection and preservation of facial nerve</td></tr>
+    <tr><td>42425</td><td>Excision of parotid tumor or parotid gland; total, en bloc removal with sacrifice of facial nerve</td></tr>
+    <tr><td>42426</td><td>Excision of parotid tumor or parotid gland; total, with unilateral radical neck dissection</td></tr>
+</table>
+</div>
+
+<h4>Tonsil / Oropharynx Resection</h4>
+<div class="code-list">
+<table>
+    <tr><th>CPT</th><th>Description</th></tr>
+    <tr><td>42842</td><td>Radical resection of tonsil, tonsillar pillars, and/or retromolar trigone; without closure</td></tr>
+    <tr><td>42844</td><td>Radical resection of tonsil, tonsillar pillars, and/or retromolar trigone; with closure with local flap</td></tr>
+    <tr><td>42845</td><td>Radical resection of tonsil, tonsillar pillars, and/or retromolar trigone; with closure with other flap</td></tr>
+    <tr><td>42890</td><td>Limited pharyngectomy</td></tr>
+    <tr><td>42892</td><td>Resection of lateral pharyngeal wall or pyriform sinus, direct closure by advancement of lateral and posterior pharyngeal walls</td></tr>
+    <tr><td>42894</td><td>Resection of pharyngeal wall requiring closure with myocutaneous or fasciocutaneous flap or free muscle, skin, or fascial flap with microvascular anastomosis</td></tr>
+</table>
+</div>
+
+<h4>Laryngeal Resection</h4>
+<div class="code-list">
+<table>
+    <tr><th>CPT</th><th>Description</th></tr>
+    <tr><td>31300</td><td>Laryngotomy (thyrotomy, laryngofissure); with removal of tumor or laryngocele, cordectomy</td></tr>
+    <tr><td>31360</td><td>Laryngectomy; total, without radical neck dissection</td></tr>
+    <tr><td>31365</td><td>Laryngectomy; total, with radical neck dissection</td></tr>
+    <tr><td>31367</td><td>Laryngectomy; subtotal supraglottic, without radical neck dissection</td></tr>
+    <tr><td>31368</td><td>Laryngectomy; subtotal supraglottic, with radical neck dissection</td></tr>
+    <tr><td>31370</td><td>Partial laryngectomy (hemilaryngectomy); horizontal</td></tr>
+    <tr><td>31375</td><td>Partial laryngectomy (hemilaryngectomy); laterovertical</td></tr>
+    <tr><td>31380</td><td>Partial laryngectomy (hemilaryngectomy); anterovertical</td></tr>
+    <tr><td>31382</td><td>Partial laryngectomy (hemilaryngectomy); antero-latero-vertical</td></tr>
+    <tr><td>31390</td><td>Pharyngolaryngectomy, with radical neck dissection; without reconstruction</td></tr>
+    <tr><td>31395</td><td>Pharyngolaryngectomy, with radical neck dissection; with reconstruction</td></tr>
+    <tr><td>31540</td><td>Laryngoscopy, direct, operative, with excision of tumor and/or stripping of vocal cords or epiglottis</td></tr>
+    <tr><td>31541</td><td>Laryngoscopy, direct, operative, with excision of tumor and/or stripping of vocal cords or epiglottis; with operating microscope or telescope</td></tr>
+    <tr><td>31546</td><td>Laryngoscopy, direct, with operating microscope or telescope, with submucosal removal of non-neoplastic lesion</td></tr>
+    <tr><td>31551</td><td>Laryngoplasty; for laryngeal stenosis, with graft or core mold, including tracheotomy</td></tr>
+    <tr><td>31561</td><td>Laryngoscopy, direct, with arytenoidectomy</td></tr>
+</table>
+</div>
+
+<h4>Neck Dissection</h4>
+<div class="code-list">
+<table>
+    <tr><th>CPT</th><th>Description</th></tr>
+    <tr><td>38700</td><td>Suprahyoid lymphadenectomy</td></tr>
+    <tr><td>38720</td><td>Cervical lymphadenectomy (complete)</td></tr>
+    <tr><td>38724</td><td>Cervical lymphadenectomy (modified radical neck dissection)</td></tr>
+</table>
+</div>
+
+<h4>Transoral Robotic Surgery (TORS)</h4>
+<div class="code-list">
+<table>
+    <tr><th>CPT</th><th>Description</th></tr>
+    <tr><td>41512</td><td>Tongue base suspension, permanent suture technique</td></tr>
+    <tr><td>42975</td><td>Drug-induced sleep endoscopy, with dynamic evaluation of velum, pharynx, tongue base, and larynx</td></tr>
+    <tr><td>0184T</td><td>Excision of rectal tumor, transanal endoscopic microsurgical approach (TEMS/TAMIS) – Note: May be used with TORS modifier</td></tr>
+</table>
+</div>
+
+<div class="note">
+    <strong>EXCLUDED procedures</strong> (do NOT count as curative-intent surgery):<br>
+    • Diagnostic biopsies (41100, 42100, 31510, 31535, etc.)<br>
+    • Tracheostomy (31600, 31601, 31603, 31605, etc.)<br>
+    • Feeding tube placement (43246, 43653, 49440, etc.)<br>
+    • Tooth extraction (D7140-D7251)<br>
+    • Minor excisions without clear oncologic intent
+</div>
+
+
+<!-- ============================================ -->
+<h1 id="io-episodes">6. IO Episode Algorithm</h1>
+<!-- ============================================ -->
+
+<p>This algorithm identifies distinct IO treatment episodes and designates the <strong>last episode</strong> (closest to death) as the index palliative episode.</p>
+
+<h3>Algorithm Parameters</h3>
+<pre><code>GAP_THRESHOLD = 120  # days between claims defining new episode
+MIN_EPISODE_CLAIMS = 1  # minimum claims to constitute an episode</code></pre>
+
+<h3>Implementation</h3>
+<pre><code class="language-sql">-- Step 1: Get all IO claims for cohort, ordered by date
+-- Source: io_claims_raw (from car_linek_all + out_revenuek_all, HCPCS J9271/J9299)
+WITH io_claims_ordered AS (
+    SELECT
+        DSYSRTKY,
+        io_date,
+        HCPCS_CD,
+        ROW_NUMBER() OVER (PARTITION BY DSYSRTKY ORDER BY io_date) AS claim_seq,
+        LAG(io_date) OVER (PARTITION BY DSYSRTKY ORDER BY io_date) AS prev_io_date
+    FROM io_claims_raw
+),
+
+-- Step 2: Identify episode boundaries (gap >= 120 days = new episode)
+episode_boundaries AS (
+    SELECT
+        *,
+        CASE
+            WHEN prev_io_date IS NULL THEN 1  -- First claim = new episode
+            WHEN datediff('day', prev_io_date, io_date) >= 120 THEN 1  -- Gap >= 120 days
+            ELSE 0
+        END AS new_episode_flag
+    FROM io_claims_ordered
+),
+
+-- Step 3: Assign episode numbers
+episode_assignments AS (
+    SELECT
+        *,
+        SUM(new_episode_flag) OVER (
+            PARTITION BY DSYSRTKY
+            ORDER BY io_date
+            ROWS UNBOUNDED PRECEDING
+        ) AS episode_num
+    FROM episode_boundaries
+),
+
+-- Step 4: Summarize episodes
+episode_summary AS (
+    SELECT
+        DSYSRTKY,
+        episode_num,
+        MIN(io_date) AS episode_start_date,
+        MAX(io_date) AS episode_end_date,
+        COUNT(DISTINCT io_date) AS episode_io_doses,
+        COUNT(*) AS episode_claim_count
+    FROM episode_assignments
+    GROUP BY DSYSRTKY, episode_num
+),
+
+-- Step 5: Identify LAST episode (closest to death)
+last_episode AS (
+    SELECT
+        DSYSRTKY,
+        episode_start_date AS last_io_episode_start,
+        episode_end_date AS last_io_episode_end,
+        episode_io_doses AS last_episode_doses,
+        episode_num AS total_episodes
+    FROM (
+        SELECT
+            *,
+            ROW_NUMBER() OVER (PARTITION BY DSYSRTKY ORDER BY episode_num DESC) AS rn
+        FROM episode_summary
+    )
+    WHERE rn = 1
+)
+
+SELECT * FROM last_episode;</code></pre>
+
+<h3>Output Variables</h3>
+<table>
+    <tr><th>Variable</th><th>Description</th></tr>
+    <tr><td><code>last_io_episode_start</code></td><td>Date of first IO claim in the last (palliative) episode</td></tr>
+    <tr><td><code>last_io_episode_end</code></td><td>Date of last IO claim in the last episode</td></tr>
+    <tr><td><code>last_episode_doses</code></td><td>Number of distinct IO administration dates in last episode</td></tr>
+    <tr><td><code>total_episodes</code></td><td>Total number of IO episodes for the patient</td></tr>
+</table>
+
+<h3>Sensitivity Analysis Thresholds</h3>
+<table>
+    <tr><th>Analysis</th><th>Gap Threshold</th><th>Rationale</th></tr>
+    <tr><td>Primary</td><td>120 days</td><td>Accommodates treatment holds up to 8 weeks + scheduling delays</td></tr>
+    <tr><td>Sensitivity 1</td><td>90 days</td><td>More conservative; may split some single courses</td></tr>
+    <tr><td>Sensitivity 2</td><td>180 days</td><td>Very liberal; may combine distinct lines of therapy</td></tr>
+</table>
+
+
+<!-- ============================================ -->
+<h1 id="derived-variables">7. Derived Variables</h1>
+<!-- ============================================ -->
+
+<h3>IO Treatment Variables</h3>
+<table>
+    <tr><th>Variable</th><th>Source</th><th>Definition</th></tr>
+    <tr>
+        <td><code>first_io_date</code></td>
+        <td>Carrier/OP</td>
+        <td>MIN(io_date) from io_claims_raw (car_linek_all THRU_DT / out_revenuek_all REV_DT|THRU_DT) where HCPCS_CD IN ('J9271','J9299')</td>
+    </tr>
+    <tr>
+        <td><code>last_io_date</code></td>
+        <td>car_linek_all / out_revenuek_all</td>
+        <td>MAX(io_date) from io_claims_raw where HCPCS_CD IN ('J9271','J9299')</td>
+    </tr>
+    <tr>
+        <td><code>total_io_doses</code></td>
+        <td>car_linek_all / out_revenuek_all</td>
+        <td>COUNT(DISTINCT io_date) from io_claims_raw</td>
+    </tr>
+    <tr>
+        <td><code>io_duration_days</code></td>
+        <td>Derived</td>
+        <td>last_io_date - first_io_date</td>
+    </tr>
+    <tr>
+        <td><code>days_last_io_to_death</code></td>
+        <td>Derived</td>
+        <td>DEATH_DT - last_io_date</td>
+    </tr>
+    <tr>
+        <td><code>days_last_io_to_death_cat</code></td>
+        <td>Derived</td>
+        <td>Categorical: ≤3, 4-14, 15-30, 31-90, >90 days</td>
+    </tr>
+    <tr>
+        <td><code>io_agent</code></td>
+        <td>Carrier/OP</td>
+        <td>'pembrolizumab' if any J9271; 'nivolumab' if any J9299; 'both' if both</td>
+    </tr>
+</table>
+
+<h3>Chemo-IO Classification</h3>
+<pre><code>-- Concurrent chemotherapy: platinum within ±21 days of ANY IO claim
+-- Source: car_linek_all.HCPCS_CD and out_revenuek_all.HCPCS_CD (HCPCS at line level only)
+chemo_io_flag = EXISTS (
+    SELECT 1 FROM chemo_claims c, io_claims_raw i
+    WHERE c.DSYSRTKY = i.DSYSRTKY
+      AND c.HCPCS_CD IN ('J9060', 'J9045')  -- cisplatin, carboplatin
+      AND ABS(datediff('day', c.chemo_date, i.io_date)) <= 21
+)
+
+io_regimen = CASE WHEN chemo_io_flag THEN 'chemo-IO' ELSE 'IO monotherapy' END</code></pre>
+
+<h3>Secular Trend Variable (replaces treatment era)</h3>
+<pre><code>-- Year of death used for secular trend analyses (NOT first IO date)
+-- Rationale: Defining era by first IO date introduces immortal time bias —
+--   patients who started IO late and survived past 2023-06-30 are excluded,
+--   enriching the late-era group with shorter survivors by design.
+-- Fix: use death_year (2017–2023) as the secular trend variable.
+
+death_year = YEAR(death_dt)  -- 2017, 2018, 2019, 2020, 2021, 2022, 2023
+
+-- In regression models: death_year_c = death_year - 2017 (continuous, centered)
+-- In secular trend table: outcomes reported by year of death</code></pre>
+<p><strong>Secular trend outcomes by year of death:</strong> hospice enrollment rate, median hospice LOS, hospice LOS ≤7 days, IO ≤14 days before death, IO ≤30 days before death, in-hospital death rate.</p>
+
+
+<!-- ============================================ -->
+<h1 id="outcomes">8. Outcome Definitions</h1>
+<!-- ============================================ -->
+
+<h3>Primary Outcome</h3>
+<table>
+    <tr><th>Outcome</th><th>Source</th><th>Definition</th></tr>
+    <tr>
+        <td><strong>hospice_enrolled</strong></td>
+        <td><span class="badge badge-hospice">HOSPICE</span></td>
+        <td>Binary (0/1): ≥1 claim in Hospice file with HSPCSTRT &lt; DEATH_DT (LDS hospice start date column = HSPCSTRT)</td>
+    </tr>
+</table>
+
+<pre><code>hospice_enrolled = EXISTS (
+    SELECT 1 FROM hosp_claimsk_all h
+    WHERE h.DSYSRTKY = cohort.DSYSRTKY
+      AND TRY_STRPTIME(h.HSPCSTRT,'%Y%m%d') < TRY_STRPTIME(cohort.DEATH_DT,'%Y%m%d')
+)</code></pre>
+
+<h3>Secondary Outcomes</h3>
+<table>
+    <tr><th>Outcome</th><th>Source</th><th>Definition</th></tr>
+    <tr>
+        <td><code>hospice_election_date</code></td>
+        <td>Hospice</td>
+        <td>MIN(TRY_STRPTIME(HSPCSTRT,'%Y%m%d')) from hosp_claimsk_all</td>
+    </tr>
+    <tr>
+        <td><code>hospice_los_days</code></td>
+        <td>Derived</td>
+        <td>DEATH_DT - hospice_election_date</td>
+    </tr>
+    <tr>
+        <td><code>hospice_short_stay</code></td>
+        <td>Derived</td>
+        <td>Binary: hospice_los_days ≤ 7</td>
+    </tr>
+    <tr>
+        <td><code>days_last_io_to_hospice</code></td>
+        <td>Derived</td>
+        <td>hospice_election_date - last_io_date (NULL if no hospice)</td>
+    </tr>
+    <tr>
+        <td><code>in_hospital_death</code></td>
+        <td>MedPAR</td>
+        <td>Binary: STUS_CD = '20' AND ABS(datediff('day', TRY_STRPTIME(DSCHRGDT,'%Y%m%d'), death_dt)) ≤ 1 (source: inp_claimsk_all)</td>
+    </tr>
+</table>
+
+<pre><code>-- In-hospital death (source: inp_claimsk_all)
+in_hospital_death = EXISTS (
+    SELECT 1 FROM inp_claimsk_all m
+    WHERE m.DSYSRTKY = cohort.DSYSRTKY
+      AND m.STUS_CD = '20'  -- Expired
+      AND ABS(datediff('day', TRY_STRPTIME(m.DSCHRGDT,'%Y%m%d'), TRY_STRPTIME(cohort.DEATH_DT,'%Y%m%d'))) <= 1
+)</code></pre>
+
+<div class="note">
+    <strong>Discharge status code 20</strong> = "Expired" in MedPAR. The ±1 day tolerance accounts for date recording differences.
+</div>
+
+
+<!-- ============================================ -->
+<h1 id="covariates">9. Covariate Specifications</h1>
+<!-- ============================================ -->
+
+<h3>Demographics (from MBSF)</h3>
+<table>
+    <tr><th>Variable</th><th>Source Field</th><th>Categories / Coding</th></tr>
+    <tr>
+        <td><code>age_at_death</code></td>
+        <td>AGE, RFRNC_YR, DEATH_DT (AGE = age as of Jan 1 of RFRNC_YR)</td>
+        <td>Continuous; also categorical: 66-69, 70-74, 75-79, 80-84, ≥85</td>
+    </tr>
+    <tr>
+        <td><code>sex</code></td>
+        <td>SEX</td>
+        <td>1 = Male, 2 = Female</td>
+    </tr>
+    <tr>
+        <td><code>race_ethnicity</code></td>
+        <td>RACE</td>
+        <td>1=White, 2=Black, 3=Other, 4=Asian/PI, 5=Hispanic, 6=Native American, 0=Unknown</td>
+    </tr>
+    <tr>
+        <td><code>dual_eligible</code></td>
+        <td>DUAL_01–DUAL_12 (month of death)</td>
+        <td>Binary: Any dual status code 01-08 in month of death</td>
+    </tr>
+    <tr>
+        <td><code>death_year</code></td>
+        <td>DEATH_DT</td>
+        <td>YEAR(DEATH_DT): 2017–2023</td>
+    </tr>
+</table>
+
+<h3>Geographic Variables</h3>
+<table>
+    <tr><th>Variable</th><th>Source</th><th>Categories / Coding</th></tr>
+    <tr>
+        <td><code>census_region</code></td>
+        <td>STATE_CD → crosswalk</td>
+        <td>Northeast, Midwest, South, West</td>
+    </tr>
+    <tr>
+        <td><code>urban_rural</code></td>
+        <td>CNTY_CD → USDA RUCC</td>
+        <td>Metro (RUCC 1-3), Non-metro (RUCC 4-9)</td>
+    </tr>
+</table>
+
+<h3>Clinical Variables</h3>
+<table>
+    <tr><th>Variable</th><th>Source</th><th>Definition</th></tr>
+    <tr>
+        <td><code>hnc_subsite</code></td>
+        <td>Carrier/OP</td>
+        <td>Most frequent ICD-10 category: Oral cavity, Oropharynx, Hypopharynx, Larynx, Other</td>
+    </tr>
+    <tr>
+        <td><code>van_walraven_score</code></td>
+        <td>Carrier/OP/INP</td>
+        <td>Elixhauser comorbidity index (van Walraven weighted score) from claims in months 13-2 before death (excludes terminal month)</td>
+    </tr>
+    <tr>
+        <td><code>prior_treatment</code></td>
+        <td>Carrier/OP/MedPAR</td>
+        <td>Surgery only, Radiation only, Chemoradiation, Surgery + adjuvant</td>
+    </tr>
+    <tr>
+        <td><code>io_regimen</code></td>
+        <td>Derived</td>
+        <td>IO monotherapy vs. Chemo-IO</td>
+    </tr>
+    <tr>
+        <td><code>total_io_doses</code></td>
+        <td>Carrier/OP</td>
+        <td>Count of distinct IO administration dates</td>
+    </tr>
+</table>
+
+<h3>Elixhauser Comorbidity Index</h3>
+<div class="tip">
+    Calculate Elixhauser comorbidity flags using claims from <strong>months 13 through 2 before death</strong> (excludes final month to avoid terminal care contamination). Use van Walraven weighted score. Source: <code>hnc_elixhauser.sql</code> adapted from OPSCC project — change anchor from <code>first_hnc_date</code> to <code>death_dt</code>.
+</div>
+
+<pre><code>-- Lookback window for comorbidities
+comorbidity_start = DEATH_DT - INTERVAL '13 months'
+comorbidity_end   = DEATH_DT - INTERVAL '2 months'
+
+-- HNC codes (C00-C14, C30-C32) are NOT excluded from solidtum/metacanc flags;
+-- they reflect active disease burden and are clinically relevant for this decedent cohort</code></pre>
+
+
+<!-- ============================================ -->
+<h1 id="final-dataset">10. Final Analytic Dataset Structure</h1>
+<!-- ============================================ -->
+
+<p>The final analytic dataset should have <strong>one row per beneficiary</strong> with the following columns:</p>
+
+<h3>Identifiers & Key Dates</h3>
+<div class="code-list">
+<table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td>bene_id</td><td>VARCHAR</td><td>Unique beneficiary identifier</td></tr>
+    <tr><td>death_dt</td><td>DATE</td><td>Date of death</td></tr>
+    <tr><td>first_hnc_dx_date</td><td>DATE</td><td>First HNC diagnosis claim date</td></tr>
+    <tr><td>first_io_date</td><td>DATE</td><td>First IO administration date (any episode)</td></tr>
+    <tr><td>last_io_date</td><td>DATE</td><td>Last IO administration date</td></tr>
+    <tr><td>last_io_episode_start</td><td>DATE</td><td>Start of last (palliative) IO episode</td></tr>
+    <tr><td>hospice_election_date</td><td>DATE</td><td>First hospice claim date (NULL if none)</td></tr>
+</table>
+</div>
+
+<h3>Demographics</h3>
+<div class="code-list">
+<table>
+    <tr><th>Column</th><th>Type</th><th>Categories</th></tr>
+    <tr><td>age_at_death</td><td>INT</td><td>Continuous (66+)</td></tr>
+    <tr><td>age_cat</td><td>VARCHAR</td><td>66-69, 70-74, 75-79, 80-84, ≥85</td></tr>
+    <tr><td>sex</td><td>VARCHAR</td><td>Male, Female</td></tr>
+    <tr><td>race_ethnicity</td><td>VARCHAR</td><td>White, Black, Hispanic, Asian/PI, Other/Unknown</td></tr>
+    <tr><td>dual_eligible</td><td>INT</td><td>0/1</td></tr>
+    <tr><td>death_year</td><td>INT</td><td>2017–2023</td></tr>
+</table>
+</div>
+
+<h3>Geography</h3>
+<div class="code-list">
+<table>
+    <tr><th>Column</th><th>Type</th><th>Categories</th></tr>
+    <tr><td>state_code</td><td>VARCHAR</td><td>2-digit state code</td></tr>
+    <tr><td>census_region</td><td>VARCHAR</td><td>Northeast, Midwest, South, West, Unknown</td></tr>
+    <tr><td>urban_rural</td><td>VARCHAR</td><td>Metro (RUCC 1–3), Non-metro (RUCC 4–9), Unknown</td></tr>
+    <tr><td>rucc</td><td>INT</td><td>USDA Rural-Urban Continuum Code 2023 (1–9; NULL if CT restructuring or non-US)</td></tr>
+</table>
+</div>
+
+<h3>Clinical Characteristics</h3>
+<div class="code-list">
+<table>
+    <tr><th>Column</th><th>Type</th><th>Categories</th></tr>
+    <tr><td>subsite_category</td><td>VARCHAR</td><td>Oral cavity, Oropharynx, Hypopharynx, Larynx, Other</td></tr>
+    <tr><td>van_walraven_score</td><td>FLOAT</td><td>Continuous (van Walraven weighted Elixhauser; claims months 13–2 before death)</td></tr>
+    <tr><td>elixhauser_cat</td><td>VARCHAR</td><td>&lt;0, 0, 1–4, 5+ (derived from van_walraven_score)</td></tr>
+    <tr><td>primary_curative_type</td><td>VARCHAR</td><td>radiation, surgery (most frequent curative therapy type; platinum excluded per v1.4)</td></tr>
+</table>
+</div>
+
+<h3>IO Treatment Variables</h3>
+<div class="code-list">
+<table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td>io_agent</td><td>VARCHAR</td><td>Pembrolizumab, Nivolumab, Both</td></tr>
+    <tr><td>io_regimen</td><td>VARCHAR</td><td>IO monotherapy, Chemo-IO</td></tr>
+    <tr><td>total_io_doses</td><td>INT</td><td>Count of distinct IO dates</td></tr>
+    <tr><td>last_episode_doses</td><td>INT</td><td>IO doses in last episode</td></tr>
+    <tr><td>total_io_episodes</td><td>INT</td><td>Number of distinct IO episodes</td></tr>
+    <tr><td>io_duration_days</td><td>INT</td><td>Last IO date - First IO date</td></tr>
+    <tr><td>io_within_14d_of_death</td><td>INT</td><td>1 if last IO dose ≤14 days before death</td></tr>
+    <tr><td>io_within_30d_of_death</td><td>INT</td><td>1 if last IO dose ≤30 days before death</td></tr>
+</table>
+</div>
+
+<h3>Outcomes</h3>
+<div class="code-list">
+<table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td>hospice_enrolled</td><td>INT</td><td>0/1 (PRIMARY OUTCOME)</td></tr>
+    <tr><td>hospice_los_days</td><td>INT</td><td>NULL if no hospice</td></tr>
+    <tr><td>hospice_short_stay</td><td>INT</td><td>0/1: LOS ≤7 days</td></tr>
+    <tr><td>days_last_io_to_death</td><td>INT</td><td>Continuous</td></tr>
+    <tr><td>days_last_io_to_death_cat</td><td>VARCHAR</td><td>≤3, 4-14, 15-30, 31-90, >90</td></tr>
+    <tr><td>days_last_io_to_hospice</td><td>INT</td><td>NULL if no hospice</td></tr>
+    <tr><td>in_hospital_death</td><td>INT</td><td>0/1</td></tr>
+</table>
+</div>
+
+<h3>Quality/Validation Flags</h3>
+<div class="code-list">
+<table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td>days_dx_to_last_io_episode</td><td>INT</td><td>For ≥180 day criterion verification</td></tr>
+    <tr><td>curative_therapy_date</td><td>DATE</td><td>Earliest curative-intent therapy</td></tr>
+    <tr><td>lookback_io_months</td><td>INT</td><td>Months from first IO to death (for sensitivity)</td></tr>
+</table>
+</div>
+
+<!-- ============================================ -->
+<h1 id="analysis-plan">11. Analysis Plan</h1>
+<!-- ============================================ -->
+
+<h3>Study Design</h3>
+<p>Retrospective observational cohort study of Medicare fee-for-service decedents with mucosal head and neck cancer (HNC) who received palliative-intent immune checkpoint inhibitor (IO) therapy (pembrolizumab J9271, nivolumab J9299) between 2017 and June 2023. All patients are deceased; analysis is descriptive with multivariable logistic regression for primary and secondary outcomes.</p>
+
+<h3>Output Files</h3>
+<table>
+    <tr><th>File</th><th>Description</th><th>Script</th></tr>
+    <tr><td><code>flowchart.png</code></td><td>CONSORT cohort derivation diagram (horizontal, OSU colors)</td><td>make_flowchart.py</td></tr>
+    <tr><td><code>table1.xlsx</code></td><td>Table 1: Patient characteristics stratified by hospice enrollment</td><td>make_table1.py</td></tr>
+    <tr><td><code>table2.xlsx</code></td><td>Table 2: Hospice utilization and end-of-life care patterns</td><td>make_table2.py</td></tr>
+    <tr><td><code>table3_regression.xlsx</code></td><td>Tables 3–4: Multivariable logistic regression (hospice + in-hospital death)</td><td>make_regression.py</td></tr>
+    <tr><td><code>fig1_hospice_by_year.png</code></td><td>Figure 1: Hospice enrollment rate by year with linear trend</td><td>make_figures.py</td></tr>
+    <tr><td><code>fig2_days_io_to_death.png</code></td><td>Figure 2: Timing from last IO dose to death (histogram + categories)</td><td>make_figures.py</td></tr>
+    <tr><td><code>fig3_hospice_los.png</code></td><td>Figure 3: Hospice LOS distribution among enrolled patients</td><td>make_figures.py</td></tr>
+</table>
+
+<h3>Table 1: Patient Characteristics</h3>
+<div class="step-box">
+    <p><strong>Columns:</strong> Overall (N = 2,766) | Hospice Enrolled (n = 1,840) | No Hospice (n = 926) | SMD</p>
+    <p><strong>Sections:</strong> Demographics · Clinical Characteristics · Prior Curative Therapy · Comorbidity · Outcomes</p>
+    <p><strong>Statistics:</strong> Continuous variables — median (IQR); comorbidity — mean (SD); Binary/categorical — n (%). SMD = standardized mean difference; &lt;0.10 negligible, 0.10–&lt;0.20 modest, ≥0.20 potentially important (highlighted).</p>
+</div>
+
+<table>
+    <tr><th>Variable</th><th>Type</th><th>Notes</th></tr>
+    <tr><td>Age at death</td><td>Continuous</td><td>Median (IQR)</td></tr>
+    <tr><td>Male sex</td><td>Binary</td><td>n (%)</td></tr>
+    <tr><td>Race/ethnicity</td><td>Categorical</td><td>White, Black, Hispanic, Asian/PI, Native American, Other/Unknown</td></tr>
+    <tr><td>Dual eligible (Medicaid)</td><td>Binary</td><td>n (%)</td></tr>
+    <tr><td>Urban/rural</td><td>Categorical</td><td>Metro, Non-metro, Unknown</td></tr>
+    <tr><td>HNC subsite</td><td>Categorical</td><td>Oral cavity, Oropharynx, Hypopharynx, Larynx, Other</td></tr>
+    <tr><td>IO agent</td><td>Categorical</td><td>Pembrolizumab, Nivolumab, Both</td></tr>
+    <tr><td>IO regimen</td><td>Categorical</td><td>IO monotherapy, Chemo-IO</td></tr>
+    <tr><td>Last episode IO doses</td><td>Continuous</td><td>Median (IQR)</td></tr>
+    <tr><td>Primary curative type</td><td>Categorical</td><td>Radiation, Surgery (no platinum)</td></tr>
+    <tr><td>van Walraven score</td><td>Continuous</td><td>Mean (SD)</td></tr>
+    <tr><td>Hospice enrolled</td><td>Binary</td><td>Primary outcome — n (%)</td></tr>
+    <tr><td>In-hospital death</td><td>Binary</td><td>Secondary outcome — n (%)</td></tr>
+    <tr><td>Days last IO to death</td><td>Continuous</td><td>Median (IQR)</td></tr>
+</table>
+
+<h3>Table 2: Hospice Utilization and End-of-Life Care Patterns</h3>
+<div class="step-box">
+    <p><strong>Columns:</strong> Characteristic | N (2,766) or n (hospice-enrolled subset) | Notes</p>
+</div>
+<table>
+    <tr><th>Metric</th><th>Denominator</th></tr>
+    <tr><td>Hospice enrolled</td><td>All (N = 2,766)</td></tr>
+    <tr><td>Hospice LOS, median (IQR)</td><td>Hospice-enrolled (n = 1,840)</td></tr>
+    <tr><td>Short hospice stay (≤7 days)</td><td>Hospice-enrolled</td></tr>
+    <tr><td>Days last IO → hospice enrollment, median (IQR)</td><td>Hospice-enrolled</td></tr>
+    <tr><td>Days last IO → death, median (IQR) + categories (≤3, 4–14, 15–30, 31–90, &gt;90 days)</td><td>All</td></tr>
+    <tr><td>In-hospital death</td><td>All</td></tr>
+</table>
+
+<h3>Tables 3–4: Multivariable Logistic Regression</h3>
+<div class="step-box">
+    <p><strong>Table 3:</strong> Outcome = hospice enrollment (primary outcome)</p>
+    <p><strong>Table 4:</strong> Outcome = in-hospital death (secondary outcome)</p>
+    <p><strong>Model N:</strong> 2,766 (no exclusions — treatment_era removed from model)</p>
+    <p><strong>Method:</strong> statsmodels logit, Newton-Raphson, 500 iterations. OR (95% CI) reported.</p>
+    <p><strong>Presentation:</strong> Variables with p &lt; 0.05 shown; all other covariates listed in footnote as "adjusted for".</p>
+</div>
+
+<pre><code>formula = (
+    'outcome ~ age_at_death + C(sex) + C(race_collapsed) + dual_eligible
+    + C(urban_rural) + C(census_region) + C(subsite_category)
+    + C(io_agent) + C(io_regimen)
+    + last_episode_doses + van_walraven_score + C(primary_curative_type)
+    + death_year_c'
+
+    -- Note: treatment_era removed (immortal time bias); death_year_c captures secular trend
+)
+-- race_collapsed: Asian/PI + Native American + Other + Unknown → "Other/Unknown"
+-- death_year_c: calendar year centered at 2017 (continuous; captures secular trend)
+-- Reference categories: Male, White, Metro, South, IO monotherapy, radiation (curative)
+</code></pre>
+
+<h3>Secular Trends Table</h3>
+<div class="step-box">
+    <p><strong>File:</strong> secular_trends.xlsx | <strong>Script:</strong> make_secular_trends.py</p>
+    <p><strong>Rows:</strong> Year of death (2017, 2018, 2019, 2020, 2021, 2022, 2023) + Total</p>
+    <p><strong>Rationale:</strong> Replaces treatment_era; avoids immortal time bias by using year of death rather than year of first IO.</p>
+</div>
+<table>
+    <tr><th>Column</th><th>Denominator</th></tr>
+    <tr><td>N</td><td>Deaths per year</td></tr>
+    <tr><td>Hospice enrolled</td><td>All patients that year</td></tr>
+    <tr><td>Hospice LOS, median (IQR)</td><td>Hospice-enrolled patients</td></tr>
+    <tr><td>Hospice LOS ≤7 days</td><td>Hospice-enrolled patients</td></tr>
+    <tr><td>IO ≤14 days before death</td><td>All patients that year</td></tr>
+    <tr><td>IO ≤30 days before death</td><td>All patients that year</td></tr>
+    <tr><td>In-hospital death</td><td>All patients that year</td></tr>
+</table>
+
+<h3>Figures</h3>
+<table>
+    <tr><th>Figure</th><th>Type</th><th>Key Elements</th></tr>
+    <tr>
+        <td>Figure 1: Hospice enrollment rate by year</td>
+        <td>Bar chart</td>
+        <td>Annual rate (%) with n per year; linear trend line (dashed); 2017–2023; OSU scarlet</td>
+    </tr>
+    <tr>
+        <td>Figure 2: Timing — last IO dose to death</td>
+        <td>Histogram + bar chart</td>
+        <td>Left: histogram capped at 365 days with median line; Right: % by category (≤3, 4–14, 15–30, 31–90, &gt;90 days)</td>
+    </tr>
+    <tr>
+        <td>Figure 3: Hospice LOS distribution</td>
+        <td>Histogram + bar chart</td>
+        <td>Left: histogram capped at 180 days with 7-day threshold and median; Right: % by LOS category among hospice-enrolled</td>
+    </tr>
+</table>
+
+<h3>Statistical Software</h3>
+<pre><code>Python 3.x (env: C:\users\hsaee\desktop\cms_viewer\env)
+Libraries: duckdb, pandas, numpy, scipy, statsmodels, openpyxl, matplotlib
+Database: F:\CMS\cms_data.duckdb (DuckDB; SET memory_limit='24GB'; SET threads=12)
+</code></pre>
+
+<hr>
+
+<p style="text-align: center; color: #666; margin-top: 3rem;">
+    <em>End of Pipeline Specification</em><br>
+    Version 1.4 | Updated March 2026 | Final cohort N = 2,766
+</p>
+
+</body>
+</html>
