@@ -2,7 +2,7 @@
 make_table1.py
 Patient characteristics: Overall + stratified by hospice enrollment
 Columns: Overall | Hospice | No Hospice | SMD
-Output: C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\table1.xlsx
+Output: C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/table1.xlsx
 """
 import sys
 sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')

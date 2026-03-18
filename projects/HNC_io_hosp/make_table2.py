@@ -1,7 +1,7 @@
 """
 make_table2.py
 Hospice utilization and end-of-life care patterns
-Output: C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\table2.xlsx
+Output: C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/table2.xlsx
 """
 import sys
 sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')

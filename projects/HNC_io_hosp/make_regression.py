@@ -2,7 +2,7 @@
 make_regression.py
 Table 3: Multivariable logistic regression — hospice enrollment (primary outcome)
 Table 4: Multivariable logistic regression — in-hospital death (secondary outcome)
-Output: C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\table3_regression.xlsx
+Output: C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/table3_regression.xlsx
 """
 import sys
 sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')

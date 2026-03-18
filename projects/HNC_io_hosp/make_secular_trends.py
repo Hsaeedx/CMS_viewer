@@ -1,7 +1,7 @@
 """
 make_secular_trends.py
 Secular trend table: end-of-life care outcomes by year of death (2017–2023)
-Output: C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\secular_trends.xlsx
+Output: C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/secular_trends.xlsx
 """
 import sys
 sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')

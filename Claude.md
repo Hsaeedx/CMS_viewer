@@ -1,6 +1,7 @@
 This workspace is meant for research projects related to the CMS (Medicare claims) database. There are multiple projects being done concurrently, including:
     - TORS vs CT/CRT for Oropharyngeal SCC
     - Outcomes in stroke patients who use SLPs vs not
+    - IO Hospitalizations and Hospice in mucosal HNC
 
 Only use powershell for this project. If you use bash, it must be simply to access powershell.
 
@@ -10,6 +11,8 @@ All MAIN project files are located at C:\Users\hsaee\Desktop\CMS_viewer
 You MUST read the documentation of the different tables and columns at F:\CMS\Documentation
 
 When running /compact, be sure to reiterate what project you have been working on and what data structures and design elements are relevant to what I am doing.
+
+Any change/update to the project should be reflected in the project's pipeline
 
 When running DuckDB queries, prefer using powershell directy over invoking python if there is no secondary use of the python script
     - i.e. Get-Content F:\CMS\queries\opscc_outcomes.sql | duckdb F:\CMS\cms_data.duckdb

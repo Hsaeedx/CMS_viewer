@@ -108,16 +108,8 @@ inpatient_curative AS (
         i.ICD_PRCDR_CD21, i.ICD_PRCDR_CD22, i.ICD_PRCDR_CD23, i.ICD_PRCDR_CD24,
         i.ICD_PRCDR_CD25
     ]) AS t(code)
-    WHERE (
-        -- Inpatient radiation: Head & Neck body system (D9%), Whole Body (DW%)
-        code LIKE 'D9%'
-        OR code LIKE 'DW%'
-        -- Surgical resection/excision: Mouth & Throat body system (0CT_ / 0CB_)
-        OR code LIKE '0CT%'
-        OR code LIKE '0CB%'
-        -- Neck dissection: Lymphatics Head/Neck (07T0/07T1/07B0/07B1)
-        OR code IN ('07T00ZZ','07T10ZZ','07B00ZX','07B00ZZ','07B10ZX','07B10ZZ')
-    )
+    -- PCS code list injected from codes.json by io_pipeline.py
+    WHERE code IN ({INPATIENT_PCS_WHERE})
     AND TRY_STRPTIME(COALESCE(NULLIF(i.PRCDR_DT1,''), i.THRU_DT),'%Y%m%d') < e.last_io_episode_start
 ),
 

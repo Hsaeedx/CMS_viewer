@@ -3,9 +3,9 @@ make_figures.py
 Figure 1: Hospice enrollment rate by year (bar chart)
 Figure 2: Distribution of days from last IO to death (histogram)
 Figure 3: Hospice LOS distribution among enrolled patients (histogram)
-Output: C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\fig1_hospice_by_year.png
-        C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\fig2_days_io_to_death.png
-        C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\fig3_hospice_los.png
+Output: C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig1_hospice_by_year.png
+        C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig2_days_io_to_death.png
+        C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig3_hospice_los.png
 """
 import sys
 sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')

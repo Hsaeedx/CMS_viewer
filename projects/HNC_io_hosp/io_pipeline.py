@@ -10,6 +10,8 @@ Usage:
 """
 
 import duckdb
+import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -21,6 +23,81 @@ DB_PATH     = r'F:\CMS\cms_data.duckdb'
 QUERIES_DIR = Path(r'C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\queries')
 OUT_DIR     = Path(r'C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp')
 PARQUET_OUT = OUT_DIR / 'io_analytic.parquet'
+CODES_JSON  = OUT_DIR / 'codes.json'
+
+# Normalize JSON category names to clean DB values
+_CAT_NAMES = {}
+
+
+def build_step4_sql():
+    """Generate Step 4 SQL dynamically from codes.json icd10_codes."""
+    with open(CODES_JSON, encoding='utf-8') as f:
+        raw = json.load(f)['icd10_codes']
+
+    # Normalize names; compute 3-char and 4-char prefix sets per category
+    categories = {}
+    for cat, codes in raw.items():
+        clean = _CAT_NAMES.get(cat, cat)
+        p3 = sorted({c for c in codes if len(c) < 4})
+        p4 = sorted({c[:4] for c in codes if len(c) >= 4})
+        categories[clean] = {'p3': p3, 'p4': p4}
+
+    def conditions(pfx):
+        parts = []
+        if pfx['p3']:
+            parts.append("LEFT(r.dx_prefix, 3) IN ({})".format(
+                ', '.join(f"'{p}'" for p in pfx['p3'])))
+        if pfx['p4']:
+            parts.append("r.dx_prefix IN ({})".format(
+                ', '.join(f"'{p}'" for p in pfx['p4'])))
+        return ' OR '.join(parts)
+
+    case_lines = '\n'.join(
+        f"        WHEN {conditions(pfx)} THEN '{cat}'"
+        for cat, pfx in categories.items()
+    )
+
+    where_parts = '\n    OR '.join(conditions(pfx) for pfx in categories.values())
+
+    return (
+        "-- Step 4: Subsite whitelist generated from PCS_Codes.json\n"
+        "SET memory_limit='24GB';\n"
+        "SET threads=12;\n"
+        "SET temp_directory='F:\\\\CMS\\\\duckdb_temp';\n\n"
+        "DROP TABLE IF EXISTS io_subsite;\n\n"
+        "CREATE TABLE io_subsite AS\n\n"
+        "WITH subsite_counts AS (\n"
+        "    SELECT r.DSYSRTKY, r.dx_prefix, COUNT(*) AS cnt\n"
+        "    FROM io_hnc_dx_raw r\n"
+        "    JOIN io_hnc_confirmed c ON r.DSYSRTKY = c.DSYSRTKY\n"
+        "    GROUP BY r.DSYSRTKY, r.dx_prefix\n"
+        "),\n\n"
+        "ranked AS (\n"
+        "    SELECT DSYSRTKY, dx_prefix, cnt,\n"
+        "           ROW_NUMBER() OVER (PARTITION BY DSYSRTKY ORDER BY cnt DESC, dx_prefix ASC) AS rn\n"
+        "    FROM subsite_counts\n"
+        ")\n\n"
+        "SELECT\n"
+        "    r.DSYSRTKY,\n"
+        "    r.dx_prefix AS predominant_subsite,\n"
+        "    CASE\n"
+        f"{case_lines}\n"
+        "        ELSE NULL\n"
+        "    END AS subsite_category\n"
+        "FROM ranked r\n"
+        "WHERE r.rn = 1\n"
+        "  AND (\n"
+        f"    {where_parts}\n"
+        "  );"
+    )
+
+def build_step7_pcs_list():
+    """Return a SQL IN-list string of all PCS codes from codes.json pcs_codes."""
+    with open(CODES_JSON, encoding='utf-8') as f:
+        pcs = json.load(f)['pcs_codes']
+    all_codes = sorted({code for codes in pcs.values() for code in codes})
+    return ', '.join(f"'{c}'" for c in all_codes)
+
 
 STEPS = [
     ("01_io_decedents.sql",     "io_decedents",     "Steps 1-2: Decedents age >=66"),
@@ -76,7 +153,13 @@ def run_pipeline():
         print(f"  File: {sql_file}")
 
         step_start = time.time()
-        sql = sql_path.read_text(encoding='utf-8')
+        if sql_file == '04_io_subsite.sql' and CODES_JSON.exists():
+            sql = build_step4_sql()
+        elif sql_file == '07_io_curative.sql' and CODES_JSON.exists():
+            sql = sql_path.read_text(encoding='utf-8')
+            sql = sql.replace('{INPATIENT_PCS_WHERE}', build_step7_pcs_list())
+        else:
+            sql = sql_path.read_text(encoding='utf-8')
         con.execute(sql)
         elapsed = time.time() - step_start
 
@@ -104,6 +187,29 @@ def run_pipeline():
         print(f"{desc:<55} {tbl:<25} {n:>12,}")
     print(f"\nTotal runtime: {total_elapsed:.0f}s")
     print(f"Output: {PARQUET_OUT}")
+    print(f"{'='*70}\n")
+
+    # Generate all figures and tables
+    analysis_scripts = [
+        'make_table1.py',
+        'make_table2.py',
+        'make_regression.py',
+        'make_secular_trends.py',
+        'make_figures.py',
+        'make_flowchart.py',
+    ]
+
+    print(f"\n{'='*70}")
+    print("GENERATING FIGURES AND TABLES")
+    print(f"{'='*70}")
+    for script in analysis_scripts:
+        script_path = OUT_DIR / script
+        print(f"Running: {script}")
+        result = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"  -> OK")
+        else:
+            print(f"  -> ERROR:\n{result.stderr.strip()}")
     print(f"{'='*70}\n")
 
 

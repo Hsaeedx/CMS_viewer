@@ -309,7 +309,7 @@
 <div class="header-block">
     <h1>IO Hospice Study: Cohort Assembly Pipeline</h1>
     <p>Aggressiveness of End-of-Life Care Among Medicare Beneficiaries with Head and Neck Cancer Who Received Immune Checkpoint Inhibitors</p>
-    <p><strong>Study Period:</strong> January 1, 2017 – June 30, 2023 | <strong>Version:</strong> 1.4 | <strong>Last Updated:</strong> March 2026 | <strong>Final N:</strong> 2,766</p>
+    <p><strong>Study Period:</strong> January 1, 2017 – June 30, 2023 | <strong>Version:</strong> 1.5 | <strong>Last Updated:</strong> March 2026 | <strong>Final N:</strong> 2,527</p>
 </div>
 
 <div class="toc">
@@ -319,7 +319,8 @@
         <li><a href="#cohort-assembly">2. Cohort Assembly Pipeline</a></li>
         <li><a href="#icd10-codes">3. ICD-10 Diagnosis Codes (HNC)</a></li>
         <li><a href="#hcpcs-codes">4. HCPCS Codes (IO Agents)</a></li>
-        <li><a href="#cpt-codes">5. CPT Codes (Curative-Intent Therapy)</a></li>
+        <li><a href="#pcs-codes">5. ICD-10-PCS Codes (Inpatient Curative Surgery/Radiation)</a></li>
+        <li><a href="#cpt-codes">6. CPT Codes (Curative-Intent Therapy)</a></li>
         <li><a href="#io-episodes">6. IO Episode Algorithm</a></li>
         <li><a href="#derived-variables">7. Derived Variables</a></li>
         <li><a href="#outcomes">8. Outcome Definitions</a></li>
@@ -457,35 +458,27 @@ WHERE dx_date BETWEEN (death_dt - INTERVAL 24 MONTH) AND death_dt
 GROUP BY DSYSRTKY
 HAVING COUNT(DISTINCT dx_date) >= 2</code></pre>
     <p><strong>Rationale:</strong> Two claims on separate dates reduces false positives from rule-out diagnoses</p>
-    <p><strong>Output:</strong> <code>N = 48,449</code> | <strong>Excluded:</strong> <code>n = 14,458,618</code> (&lt;2 HNC claims or no HNC claims)</p>
+    <p><strong>Output:</strong> <code>N = 201,448</code> | <strong>Excluded:</strong> <code>n = 14,305,619</code> (&lt;2 HNC claims or no HNC claims)</p>
 </div>
 
 <!-- STEP 4 -->
 <div class="step-box exclusion">
-    <h3><span class="step-number">4</span> Restrict to Eligible HNC Subsites (Mucosal SCC)</h3>
+    <h3><span class="step-number">4</span> Restrict to Eligible HNC Subsites</h3>
     <p><strong>Source:</strong> <span class="badge badge-carrier">CARRIER</span> + <span class="badge badge-outpatient">OUTPATIENT</span></p>
     <p><strong>Logic:</strong></p>
-    <pre><code>-- Determine predominant subsite using 4-char ICD-10 prefix (SUBSTR(code,1,4))
--- EXCLUDE if predominant subsite is in excluded list (3-char prefix match)
+    <pre><code>-- Whitelist approach: SQL generated dynamically from codes.json (icd10_codes) by io_pipeline.py
+-- Only patients whose predominant 4-char dx_prefix matches a code in the JSON are kept.
+-- All other codes (C11, C30/C31, etc.) excluded by omission.
 
-EXCLUDED_SUBSITES (3-char prefix):
-    C11  -- Nasopharynx (distinct biology, EBV-associated)
-    C07  -- Parotid gland
-    C08  -- Other salivary glands
-    C30  -- Nasal cavity
-    C31  -- Paranasal sinuses
-    C44  -- Cutaneous malignancies
-
-SUBSITE CATEGORIES (4-char precision):
-    Oral Cavity:   C00x, C01, C02x (except C024), C03x, C04x,
-                   C050/C058/C059, C06x, C148
-    Oropharynx:    C024 (lingual tonsil), C051/C052 (soft palate),
-                   C09x, C10x, C140/C142
-    Hypopharynx:   C12, C13x
-    Larynx:        C32x
-    Other HNC:     All remaining (C14x NEC, C43x, C49x, C76x, C77x)</code></pre>
-    <p><strong>Note:</strong> C43/C49/C76/C77 (melanoma, connective tissue, lymph node H&amp;N) are captured and categorized as Other HNC.</p>
-    <p><strong>Output:</strong> <code>N = 119,415 unique dx records → 40,890 confirmed patients post-step-3</code> | <strong>Excluded:</strong> <code>n = 7,559</code> (nasopharynx, salivary, sinonasal, cutaneous)</p>
+Larynx:          C320, C321, C322, C323, C328, C329
+Hypopharynx:     C12, C130, C131, C132, C138, C139
+Oral Cavity:     C000, C001, C002, C003, C004, C005, C006, C008, C009,
+                 C020, C021, C022, C023, C028, C029,
+                 C030, C031, C039, C040, C041, C048, C049,
+                 C050, C058, C059, C060, C061, C062, C0680, C0689, C069
+Oropharynx:      C01, C024, C051, C052, C090, C091, C098, C099,
+                 C100, C101, C102, C103, C104, C108, C109, C140, C142, C148</code></pre>
+    <p><strong>Output:</strong> <code>N = 39,364</code> | <strong>Excluded:</strong> <code>n = 162,084</code> (subsite not in whitelist)</p>
 </div>
 
 <!-- STEP 5 -->
@@ -515,7 +508,7 @@ FROM io_claims
 WHERE io_date BETWEEN (death_dt - INTERVAL 24 MONTH) AND death_dt
 
 INCLUDE WHERE DSYSRTKY IN (SELECT DISTINCT DSYSRTKY FROM io_claims)</code></pre>
-    <p><strong>Output:</strong> <code>N = 7,123</code> | <strong>Excluded:</strong> <code>n = 33,767</code> (no IO claims within 24 months of death)</p>
+    <p><strong>Output:</strong> <code>N = 6,356</code> | <strong>Excluded:</strong> <code>n = 33,008</code> (no IO claims within 24 months of death)</p>
 </div>
 
 <!-- STEP 6 -->
@@ -529,7 +522,7 @@ INCLUDE WHERE DSYSRTKY IN (SELECT DISTINCT DSYSRTKY FROM io_claims)</code></pre>
 GAP_THRESHOLD_DAYS = 120
 
 -- Output: last_io_episode_start_date, last_io_episode_end_date for each BENE_ID</code></pre>
-    <p><strong>Output:</strong> All patients assigned to their last IO episode → <code>N = 7,123</code> (no exclusions; every patient with IO claims is assigned an episode)</p>
+    <p><strong>Output:</strong> All patients assigned to their last IO episode → <code>N = 6,356</code> (no exclusions; every patient with IO claims is assigned an episode)</p>
 </div>
 
 <!-- STEP 7 -->
@@ -538,23 +531,16 @@ GAP_THRESHOLD_DAYS = 120
     <p><strong>Source:</strong> <span class="badge badge-carrier">CARRIER</span> + <span class="badge badge-outpatient">OUTPATIENT</span> + <span class="badge badge-inpatient">INPATIENT</span></p>
     <p><strong>Logic:</strong></p>
     <pre><code>-- Evidence of ≥1 curative-intent therapy BEFORE start of last IO episode:
---   (a) Surgery (see Section 5 for CPT codes)
---   (b) Radiation therapy
---   (c) Platinum chemotherapy
+--   (a) Surgery — CPT codes (see Section 5) OR inpatient ICD-10-PCS from codes.json
+--   (b) Radiation — CPT 77401-77425, 77427, 77431-77499 OR ICD-10-PCS D9x codes
 
--- Curative intent = surgery OR radiation (platinum alone not sufficient)
-curative_therapy_date = MIN(
-    surgery_date,      -- CPT codes (glossectomy, pharyngectomy, laryngectomy, neck dissection)
-                       -- OR inpatient ICD-10-PCS (0CT_/0CB_ = mouth/throat resection,
-                       --    0CTR_ = laryngectomy, 07T0/07B0 = neck dissection)
-    radiation_date     -- CPT 77401-77425, 77427, 77431-77499
-                       -- OR inpatient ICD-10-PCS D9% (H&N radiation body system)
-)
+-- Inpatient PCS code list injected dynamically from codes.json (pcs_codes) by io_pipeline.py
+-- Radiation identified by codes starting with 'D'; all others classified as surgery
 
 INCLUDE WHERE curative_therapy_date &lt; last_io_episode_start_date</code></pre>
-    <p><strong>Rationale:</strong> Identifies patients with recurrent/metastatic disease (not de novo metastatic). Platinum chemotherapy alone is excluded as a curative-intent criterion — only surgery or radiation qualifies.</p>
-    <p><strong>Output:</strong> <code>N = 3,827</code> | <strong>Excluded:</strong> <code>n = 2,120</code> (no prior curative-intent therapy before last IO episode)</p>
-    <p class="note" style="margin-top:0.5rem"><strong>Note:</strong> ESRD exclusion, geographic data filter, and continuous FFS enrollment checks (Steps 9–11) are applied jointly with this step in the pipeline, bringing the cohort from N = 7,123 → N = 5,947 (excluded n = 1,176 for ESRD/geography/MA enrollment) → N = 3,827.</p>
+    <p><strong>Rationale:</strong> Identifies patients with recurrent/metastatic disease (not de novo metastatic). Platinum chemotherapy alone is excluded as a curative-intent criterion — only surgery or radiation qualifies. Inpatient PCS codes are sourced from <code>codes.json</code> and cover Trachea, Pharynx, Larynx, Oropharynx, Salivary gland, Neck, and Oral cavity procedures.</p>
+    <p><strong>Output:</strong> <code>N = 4,022</code> | <strong>Excluded:</strong> <code>n = 1,280</code> (no prior curative-intent therapy before last IO episode)</p>
+    <p class="note" style="margin-top:0.5rem"><strong>Note:</strong> ESRD exclusion, geographic data filter, and continuous FFS enrollment checks (Steps 9–11) are applied jointly with this step in the pipeline, bringing the cohort from N = 6,356 → N = 5,302 (excluded n = 1,054 for ESRD/geography/MA enrollment) → N = 4,022.</p>
 </div>
 
 <!-- STEP 8 -->
@@ -566,7 +552,7 @@ INCLUDE WHERE curative_therapy_date &lt; last_io_episode_start_date</code></pre>
 
 INCLUDE WHERE days_dx_to_io >= 180</code></pre>
     <p><strong>Rationale:</strong> Ensures IO represents recurrent/metastatic treatment, not concurrent with primary therapy</p>
-    <p><strong>Output:</strong> <code>N = 2,766</code> | <strong>Excluded:</strong> <code>n = 1,061</code> (&lt;180 days from first HNC dx to last IO episode start)</p>
+    <p><strong>Output:</strong> <code>N = 2,527</code> | <strong>Excluded:</strong> <code>n = 1,495</code> (&lt;180 days from first HNC dx to last IO episode start)</p>
 </div>
 
 <!-- STEP 9 -->
@@ -576,7 +562,7 @@ INCLUDE WHERE days_dx_to_io >= 180</code></pre>
     <p><strong>Logic:</strong></p>
     <pre><code>EXCLUDE WHERE OREC = '2'  -- ESRD as original Medicare entitlement reason (LDS column: OREC)</code></pre>
     <p><strong>Rationale:</strong> Atypical Medicare population with distinct utilization patterns</p>
-    <p><strong>Output:</strong> Applied jointly with Steps 10–11 → combined exclusions of <code>n = 1,176</code> (ESRD, missing geography, or MA enrollment); intermediate N = <code>5,947</code></p>
+    <p><strong>Output:</strong> Applied jointly with Steps 10–11 → combined exclusions of <code>n = 1,054</code> (ESRD, missing geography, or MA enrollment); intermediate N = <code>5,302</code></p>
 </div>
 
 <!-- STEP 10 -->
@@ -631,14 +617,14 @@ WITH monthly_enroll AS (
 EXCLUDE WHERE any month in [death_dt - 24 months, death_dt] has hmo_ind &lt;&gt; '0'
            OR mdcr_stus NOT IN ('10','11','20','21')</code></pre>
     <p><strong>Rationale:</strong> MA claims are incomplete; ensures full claims visibility</p>
-    <p><strong>Output:</strong> See Step 9 — applied jointly; combined exclusions n = 1,176.</p>
+    <p><strong>Output:</strong> See Step 9 — applied jointly; combined exclusions n = 1,054.</p>
 </div>
 
 <!-- FINAL -->
 <div class="step-box" style="border-left-color: var(--primary); background: #e7f3ff;">
     <h3>✓ FINAL ANALYTIC COHORT</h3>
     <p><strong>Definition:</strong> Medicare FFS decedents with mucosal HNC who received palliative IO after prior curative-intent therapy</p>
-    <p><strong>Final N:</strong> <code>2,766</code> | Hospice enrolled: <code>1,840 (66.5%)</code> | In-hospital death: <code>see Table 2</code></p>
+    <p><strong>Final N:</strong> <code>2,527</code> | Hospice enrolled: <code>1,670 (66.1%)</code> | In-hospital death: <code>see Table 2</code></p>
 </div>
 
 
@@ -646,65 +632,68 @@ EXCLUDE WHERE any month in [death_dt - 24 months, death_dt] has hmo_ind &lt;&gt;
 <h1 id="icd10-codes">3. ICD-10 Diagnosis Codes (Head and Neck Cancer)</h1>
 <!-- ============================================ -->
 
-<h3>INCLUDED Subsites (Mucosal Squamous Cell Carcinoma)</h3>
+<h3>Included Subsites (mucosal HNC; sourced from codes.json)</h3>
 
 <h4>Oral Cavity (C00–C06)</h4>
 <div class="code-list">
 <table>
     <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
-    <tr><td>C00.0</td><td>Malignant neoplasm of external upper lip</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C00.1</td><td>Malignant neoplasm of external lower lip</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C00.2</td><td>Malignant neoplasm of external lip, unspecified</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C00.3</td><td>Malignant neoplasm of upper lip, inner aspect</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C00.4</td><td>Malignant neoplasm of lower lip, inner aspect</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C00.5</td><td>Malignant neoplasm of lip, unspecified, inner aspect</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C00.6</td><td>Malignant neoplasm of commissure of lip, unspecified</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C00.8</td><td>Malignant neoplasm of overlapping sites of lip</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C00.9</td><td>Malignant neoplasm of lip, unspecified</td><td>Oral Cavity - Lip</td></tr>
-    <tr><td>C02.0</td><td>Malignant neoplasm of dorsal surface of tongue</td><td>Oral Cavity - Tongue</td></tr>
-    <tr><td>C02.1</td><td>Malignant neoplasm of border of tongue</td><td>Oral Cavity - Tongue</td></tr>
-    <tr><td>C02.2</td><td>Malignant neoplasm of ventral surface of tongue</td><td>Oral Cavity - Tongue</td></tr>
-    <tr><td>C02.3</td><td>Malignant neoplasm of anterior two-thirds of tongue, part unspecified</td><td>Oral Cavity - Tongue</td></tr>
-    <tr><td>C02.4</td><td>Malignant neoplasm of lingual tonsil</td><td>Oral Cavity - Tongue</td></tr>
-    <tr><td>C02.8</td><td>Malignant neoplasm of overlapping sites of tongue</td><td>Oral Cavity - Tongue</td></tr>
-    <tr><td>C02.9</td><td>Malignant neoplasm of tongue, unspecified</td><td>Oral Cavity - Tongue</td></tr>
-    <tr><td>C03.0</td><td>Malignant neoplasm of upper gum</td><td>Oral Cavity - Gum</td></tr>
-    <tr><td>C03.1</td><td>Malignant neoplasm of lower gum</td><td>Oral Cavity - Gum</td></tr>
-    <tr><td>C03.9</td><td>Malignant neoplasm of gum, unspecified</td><td>Oral Cavity - Gum</td></tr>
-    <tr><td>C04.0</td><td>Malignant neoplasm of anterior floor of mouth</td><td>Oral Cavity - Floor of Mouth</td></tr>
-    <tr><td>C04.1</td><td>Malignant neoplasm of lateral floor of mouth</td><td>Oral Cavity - Floor of Mouth</td></tr>
-    <tr><td>C04.8</td><td>Malignant neoplasm of overlapping sites of floor of mouth</td><td>Oral Cavity - Floor of Mouth</td></tr>
-    <tr><td>C04.9</td><td>Malignant neoplasm of floor of mouth, unspecified</td><td>Oral Cavity - Floor of Mouth</td></tr>
-    <tr><td>C05.0</td><td>Malignant neoplasm of hard palate</td><td>Oral Cavity - Palate</td></tr>
-    <tr><td>C05.1</td><td>Malignant neoplasm of soft palate</td><td>Oral Cavity - Palate</td></tr>
-    <tr><td>C05.2</td><td>Malignant neoplasm of uvula</td><td>Oral Cavity - Palate</td></tr>
-    <tr><td>C05.8</td><td>Malignant neoplasm of overlapping sites of palate</td><td>Oral Cavity - Palate</td></tr>
-    <tr><td>C05.9</td><td>Malignant neoplasm of palate, unspecified</td><td>Oral Cavity - Palate</td></tr>
-    <tr><td>C06.0</td><td>Malignant neoplasm of cheek mucosa</td><td>Oral Cavity - Other</td></tr>
-    <tr><td>C06.1</td><td>Malignant neoplasm of vestibule of mouth</td><td>Oral Cavity - Other</td></tr>
-    <tr><td>C06.2</td><td>Malignant neoplasm of retromolar area</td><td>Oral Cavity - Other</td></tr>
-    <tr><td>C06.80</td><td>Malignant neoplasm of overlapping sites of unspecified parts of mouth</td><td>Oral Cavity - Other</td></tr>
-    <tr><td>C06.89</td><td>Malignant neoplasm of overlapping sites of other parts of mouth</td><td>Oral Cavity - Other</td></tr>
-    <tr><td>C06.9</td><td>Malignant neoplasm of mouth, unspecified</td><td>Oral Cavity - Other</td></tr>
+    <tr><td>C00.0</td><td>Malignant neoplasm of external upper lip</td><td>Oral Cavity</td></tr>
+    <tr><td>C00.1</td><td>Malignant neoplasm of external lower lip</td><td>Oral Cavity</td></tr>
+    <tr><td>C00.2</td><td>Malignant neoplasm of external lip, unspecified</td><td>Oral Cavity</td></tr>
+    <tr><td>C00.3</td><td>Malignant neoplasm of upper lip, inner aspect</td><td>Oral Cavity</td></tr>
+    <tr><td>C00.4</td><td>Malignant neoplasm of lower lip, inner aspect</td><td>Oral Cavity</td></tr>
+    <tr><td>C00.5</td><td>Malignant neoplasm of lip, unspecified, inner aspect</td><td>Oral Cavity</td></tr>
+    <tr><td>C00.6</td><td>Malignant neoplasm of commissure of lip, unspecified</td><td>Oral Cavity</td></tr>
+    <tr><td>C00.8</td><td>Malignant neoplasm of overlapping sites of lip</td><td>Oral Cavity</td></tr>
+    <tr><td>C00.9</td><td>Malignant neoplasm of lip, unspecified</td><td>Oral Cavity</td></tr>
+    <tr><td>C02.0</td><td>Malignant neoplasm of dorsal surface of tongue</td><td>Oral Cavity</td></tr>
+    <tr><td>C02.1</td><td>Malignant neoplasm of border of tongue</td><td>Oral Cavity</td></tr>
+    <tr><td>C02.2</td><td>Malignant neoplasm of ventral surface of tongue</td><td>Oral Cavity</td></tr>
+    <tr><td>C02.3</td><td>Malignant neoplasm of anterior two-thirds of tongue, part unspecified</td><td>Oral Cavity</td></tr>
+    <tr><td>C02.8</td><td>Malignant neoplasm of overlapping sites of tongue</td><td>Oral Cavity</td></tr>
+    <tr><td>C02.9</td><td>Malignant neoplasm of tongue, unspecified</td><td>Oral Cavity</td></tr>
+    <tr><td>C03.0</td><td>Malignant neoplasm of upper gum</td><td>Oral Cavity</td></tr>
+    <tr><td>C03.1</td><td>Malignant neoplasm of lower gum</td><td>Oral Cavity</td></tr>
+    <tr><td>C03.9</td><td>Malignant neoplasm of gum, unspecified</td><td>Oral Cavity</td></tr>
+    <tr><td>C04.0</td><td>Malignant neoplasm of anterior floor of mouth</td><td>Oral Cavity</td></tr>
+    <tr><td>C04.1</td><td>Malignant neoplasm of lateral floor of mouth</td><td>Oral Cavity</td></tr>
+    <tr><td>C04.8</td><td>Malignant neoplasm of overlapping sites of floor of mouth</td><td>Oral Cavity</td></tr>
+    <tr><td>C04.9</td><td>Malignant neoplasm of floor of mouth, unspecified</td><td>Oral Cavity</td></tr>
+    <tr><td>C05.0</td><td>Malignant neoplasm of hard palate</td><td>Oral Cavity</td></tr>
+    <tr><td>C05.8</td><td>Malignant neoplasm of overlapping sites of palate</td><td>Oral Cavity</td></tr>
+    <tr><td>C05.9</td><td>Malignant neoplasm of palate, unspecified</td><td>Oral Cavity</td></tr>
+    <tr><td>C06.0</td><td>Malignant neoplasm of cheek mucosa</td><td>Oral Cavity</td></tr>
+    <tr><td>C06.1</td><td>Malignant neoplasm of vestibule of mouth</td><td>Oral Cavity</td></tr>
+    <tr><td>C06.2</td><td>Malignant neoplasm of retromolar area</td><td>Oral Cavity</td></tr>
+    <tr><td>C06.80</td><td>Malignant neoplasm of overlapping sites of unspecified parts of mouth</td><td>Oral Cavity</td></tr>
+    <tr><td>C06.89</td><td>Malignant neoplasm of overlapping sites of other parts of mouth</td><td>Oral Cavity</td></tr>
+    <tr><td>C06.9</td><td>Malignant neoplasm of mouth, unspecified</td><td>Oral Cavity</td></tr>
 </table>
 </div>
 
-<h4>Oropharynx (C01, C09–C10)</h4>
+<h4>Oropharynx (C01, C02.4, C05.1, C05.2, C09–C10, C14.0, C14.2, C14.8)</h4>
 <div class="code-list">
 <table>
     <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
-    <tr><td>C01</td><td>Malignant neoplasm of base of tongue</td><td>Oropharynx - Base of Tongue</td></tr>
-    <tr><td>C09.0</td><td>Malignant neoplasm of tonsillar fossa</td><td>Oropharynx - Tonsil</td></tr>
-    <tr><td>C09.1</td><td>Malignant neoplasm of tonsillar pillar (anterior)(posterior)</td><td>Oropharynx - Tonsil</td></tr>
-    <tr><td>C09.8</td><td>Malignant neoplasm of overlapping sites of tonsil</td><td>Oropharynx - Tonsil</td></tr>
-    <tr><td>C09.9</td><td>Malignant neoplasm of tonsil, unspecified</td><td>Oropharynx - Tonsil</td></tr>
-    <tr><td>C10.0</td><td>Malignant neoplasm of vallecula</td><td>Oropharynx - Other</td></tr>
-    <tr><td>C10.1</td><td>Malignant neoplasm of anterior surface of epiglottis</td><td>Oropharynx - Other</td></tr>
-    <tr><td>C10.2</td><td>Malignant neoplasm of lateral wall of oropharynx</td><td>Oropharynx - Other</td></tr>
-    <tr><td>C10.3</td><td>Malignant neoplasm of posterior wall of oropharynx</td><td>Oropharynx - Other</td></tr>
-    <tr><td>C10.4</td><td>Malignant neoplasm of branchial cleft</td><td>Oropharynx - Other</td></tr>
-    <tr><td>C10.8</td><td>Malignant neoplasm of overlapping sites of oropharynx</td><td>Oropharynx - Other</td></tr>
-    <tr><td>C10.9</td><td>Malignant neoplasm of oropharynx, unspecified</td><td>Oropharynx - Other</td></tr>
+    <tr><td>C01</td><td>Malignant neoplasm of base of tongue</td><td>Oropharynx</td></tr>
+    <tr><td>C02.4</td><td>Malignant neoplasm of lingual tonsil</td><td>Oropharynx</td></tr>
+    <tr><td>C05.1</td><td>Malignant neoplasm of soft palate</td><td>Oropharynx</td></tr>
+    <tr><td>C05.2</td><td>Malignant neoplasm of uvula</td><td>Oropharynx</td></tr>
+    <tr><td>C09.0</td><td>Malignant neoplasm of tonsillar fossa</td><td>Oropharynx</td></tr>
+    <tr><td>C09.1</td><td>Malignant neoplasm of tonsillar pillar (anterior)(posterior)</td><td>Oropharynx</td></tr>
+    <tr><td>C09.8</td><td>Malignant neoplasm of overlapping sites of tonsil</td><td>Oropharynx</td></tr>
+    <tr><td>C09.9</td><td>Malignant neoplasm of tonsil, unspecified</td><td>Oropharynx</td></tr>
+    <tr><td>C10.0</td><td>Malignant neoplasm of vallecula</td><td>Oropharynx</td></tr>
+    <tr><td>C10.1</td><td>Malignant neoplasm of anterior surface of epiglottis</td><td>Oropharynx</td></tr>
+    <tr><td>C10.2</td><td>Malignant neoplasm of lateral wall of oropharynx</td><td>Oropharynx</td></tr>
+    <tr><td>C10.3</td><td>Malignant neoplasm of posterior wall of oropharynx</td><td>Oropharynx</td></tr>
+    <tr><td>C10.4</td><td>Malignant neoplasm of branchial cleft</td><td>Oropharynx</td></tr>
+    <tr><td>C10.8</td><td>Malignant neoplasm of overlapping sites of oropharynx</td><td>Oropharynx</td></tr>
+    <tr><td>C10.9</td><td>Malignant neoplasm of oropharynx, unspecified</td><td>Oropharynx</td></tr>
+    <tr><td>C14.0</td><td>Malignant neoplasm of pharynx, unspecified</td><td>Oropharynx</td></tr>
+    <tr><td>C14.2</td><td>Malignant neoplasm of Waldeyer's ring</td><td>Oropharynx</td></tr>
+    <tr><td>C14.8</td><td>Malignant neoplasm of overlapping sites of lip, oral cavity and pharynx</td><td>Oropharynx</td></tr>
 </table>
 </div>
 
@@ -725,37 +714,16 @@ EXCLUDE WHERE any month in [death_dt - 24 months, death_dt] has hmo_ind &lt;&gt;
 <div class="code-list">
 <table>
     <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
-    <tr><td>C32.0</td><td>Malignant neoplasm of glottis</td><td>Larynx - Glottis</td></tr>
-    <tr><td>C32.1</td><td>Malignant neoplasm of supraglottis</td><td>Larynx - Supraglottis</td></tr>
-    <tr><td>C32.2</td><td>Malignant neoplasm of subglottis</td><td>Larynx - Subglottis</td></tr>
-    <tr><td>C32.3</td><td>Malignant neoplasm of laryngeal cartilage</td><td>Larynx - Other</td></tr>
-    <tr><td>C32.8</td><td>Malignant neoplasm of overlapping sites of larynx</td><td>Larynx - Other</td></tr>
-    <tr><td>C32.9</td><td>Malignant neoplasm of larynx, unspecified</td><td>Larynx - Other</td></tr>
+    <tr><td>C32.0</td><td>Malignant neoplasm of glottis</td><td>Larynx</td></tr>
+    <tr><td>C32.1</td><td>Malignant neoplasm of supraglottis</td><td>Larynx</td></tr>
+    <tr><td>C32.2</td><td>Malignant neoplasm of subglottis</td><td>Larynx</td></tr>
+    <tr><td>C32.3</td><td>Malignant neoplasm of laryngeal cartilage</td><td>Larynx</td></tr>
+    <tr><td>C32.8</td><td>Malignant neoplasm of overlapping sites of larynx</td><td>Larynx</td></tr>
+    <tr><td>C32.9</td><td>Malignant neoplasm of larynx, unspecified</td><td>Larynx</td></tr>
 </table>
 </div>
 
-<h4>Other/Ill-Defined (C14)</h4>
-<div class="code-list">
-<table>
-    <tr><th>ICD-10</th><th>Description</th><th>Subsite Category</th></tr>
-    <tr><td>C14.0</td><td>Malignant neoplasm of pharynx, unspecified</td><td>Other HNC</td></tr>
-    <tr><td>C14.2</td><td>Malignant neoplasm of Waldeyer's ring</td><td>Other HNC</td></tr>
-    <tr><td>C14.8</td><td>Malignant neoplasm of overlapping sites of lip, oral cavity and pharynx</td><td>Other HNC</td></tr>
-</table>
-</div>
 
-<h3>EXCLUDED Subsites</h3>
-<div class="code-list">
-<table>
-    <tr><th>ICD-10 Range</th><th>Description</th><th>Exclusion Rationale</th></tr>
-    <tr><td>C11.0 – C11.9</td><td>Nasopharynx</td><td>Distinct biology (EBV-associated), different treatment paradigm, IO not FDA-approved</td></tr>
-    <tr><td>C07</td><td>Parotid gland</td><td>Salivary gland malignancies - distinct histology</td></tr>
-    <tr><td>C08.0 – C08.9</td><td>Other major salivary glands (submandibular, sublingual)</td><td>Salivary gland malignancies - distinct histology</td></tr>
-    <tr><td>C30.0 – C30.1</td><td>Nasal cavity</td><td>Sinonasal malignancies - distinct biology</td></tr>
-    <tr><td>C31.0 – C31.9</td><td>Paranasal sinuses (maxillary, ethmoid, frontal, sphenoid)</td><td>Sinonasal malignancies - distinct biology</td></tr>
-    <tr><td>C44.0 – C44.9</td><td>Skin of head/neck</td><td>Cutaneous malignancies (different treatment, cemiplimab indication)</td></tr>
-</table>
-</div>
 
 <div class="note">
     Check ALL diagnosis code positions (ICD_DGNS_CD1 through ICD_DGNS_CD25 in Carrier; ICD_DGNS_CD1 through ICD_DGNS_CD25 in Outpatient).
@@ -796,7 +764,32 @@ EXCLUDE WHERE any month in [death_dt - 24 months, death_dt] has hmo_ind &lt;&gt;
 
 
 <!-- ============================================ -->
-<h1 id="cpt-codes">5. CPT Codes (Curative-Intent Therapy)</h1>
+<h1 id="pcs-codes">5. ICD-10-PCS Codes (Inpatient Curative-Intent Surgery/Radiation)</h1>
+<!-- ============================================ -->
+<p>Sourced from <code>codes.json</code> → <code>pcs_codes</code>. Injected into <code>07_io_curative.sql</code> at runtime by <code>io_pipeline.py</code>. Codes beginning with <strong>D</strong> are classified as radiation; all others as surgery.</p>
+
+<h3>Trachea</h3>
+<div class="code-list"><code>0B110F4, 0B110Z4, 0B510ZZ, 0BJ10ZZ, 0BN10ZZ</code></div>
+
+<h3>Pharynx</h3>
+<div class="code-list"><code>0C5M0ZZ, 0C5M7ZZ, 0CBM0ZX, 0CBM0ZZ, 0CCM0ZZ, 0CCM3ZZ, 0CCM4ZZ, 0CCM7ZZ, 0CCM8ZZ, 0CNM0ZZ, 0CNM3ZZ, 0CNM4ZZ, 0CNM7ZZ, 0CNM8ZZ, 0CQM0ZZ, 0CQM3ZZ, 0CQM4ZZ, 0CQM7ZZ, 0CQM8ZZ, 0CRM07Z, 0CRM0JZ, 0CRM0KZ, 0CRM77Z, 0CRM7JZ, 0CRM7KZ, 0CRM87Z, 0CRM8JZ, 0CRM8KZ, 0CTM0ZZ, 0CTM4ZZ, 0CTM7ZZ, 0CTM8ZZ, 0CUM07Z, 0CUM0JZ, 0CUM0KZ, 0CUM77Z, 0CUM7JZ, 0CUM7KZ, 0CUM87Z, 0CUM8JZ, 0CUM8KZ, 0CB50ZZ, 0CT50ZZ</code></div>
+
+<h3>Larynx</h3>
+<div class="code-list"><code>0C5S0ZZ, 0C5S7ZZ, 0C5S8ZZ, 0C7S0ZZ, 0C7S8ZZ, 0CBS0ZX, 0CBS0ZZ, 0CCS0ZZ, 0CCS3ZZ, 0CCS4ZZ, 0CCS7ZZ, 0CCS8ZZ, 0CJS0ZZ, 0CJS7ZZ, 0CJS8ZZ, 0CJSXZZ, 0CNS0ZZ, 0CNS3ZZ, 0CNS4ZZ, 0CNS7ZZ, 0CNS8ZZ, 0CPS00Z, 0CPS07Z, 0CPS0DZ, 0CPS0JZ, 0CPS0KZ, 0CPS0YZ, 0CPS30Z, 0CPS37Z, 0CPS3DZ, 0CPS3JZ, 0CPS3KZ, 0CPS3YZ, 0CPS70Z, 0CPS77Z, 0CPS7DZ, 0CPS7JZ, 0CPS7KZ, 0CPS7YZ, 0CPS80Z, 0CPS87Z, 0CPS8DZ, 0CPS8JZ, 0CPS8KZ, 0CPS8YZ, 0CPSX0Z, 0CPSX7Z, 0CPSXDZ, 0CPSXJZ, 0CPSXKZ, 0CQS0ZZ, 0CQS3ZZ, 0CQS4ZZ, 0CQS7ZZ, 0CQS8ZZ, 0CRS07Z, 0CRS0JZ, 0CRS0KZ, 0CRS77Z, 0CRS7JZ, 0CRS7KZ, 0CRS87Z, 0CRS8JZ, 0CRS8KZ, 0CTS0ZZ, 0CTS4ZZ, 0CTS7ZZ, 0CTS8ZZ, 0CUS07Z, 0CUS0JZ, 0CUS0KZ, 0CUS77Z, 0CUS7JZ, 0CUS7KZ, 0CUS87Z, 0CUS8JZ, 0CB60ZZ, 0CT60ZZ</code></div>
+
+<h3>Oropharynx</h3>
+<div class="code-list"><code>0K540ZZ, 0K840ZZ, 0K847ZZ, 0K848ZZ, 0K9400Z, 0K940ZX, 0K940ZZ, 0KB40ZX, 0KB40ZZ, 0KC40ZZ, 0KD40ZZ, 0KM40ZZ, 0KN40ZZ, 0KN4XZZ, 0KQ40ZZ, 0KR407Z, 0KR40JZ, 0KR40KZ, 0KS40ZZ, 0KT40ZZ, 0KU407Z, 0KU40JZ, 0KU40KZ, 0KX40Z0, 0KX40Z1, 0KX40Z2, 0KX40ZZ, 0WB30ZX, 0WB30ZZ, 0WB3XZX, 0WB3XZZ</code></div>
+
+<h3>Salivary</h3>
+<div class="code-list"><code>0CB00ZZ, 0CB01ZZ, D9Y6FZZ, 0CT01ZZ, D9Y68ZZ, 0CB21ZZ, 0CT20ZZ, 0CT21ZZ, 0C2AX0Z, 0C2AXYZ, 0C580ZZ, 0C590ZZ, 0C5B0ZZ, 0C5C0ZZ, 0C5G0ZZ, 0C5H0ZZ, 0C5J0ZZ, 0C7B0ZZ, 0C7B7ZZ, 0C7C0ZZ, 0C7C7ZZ, 0C9800Z, 0C980ZX, 0C980ZZ, 0C9900Z, 0C990ZX, 0C990ZZ, 0C9B0ZX, 0C9B0ZZ, 0C9C0ZX, 0C9C0ZZ, 0C9G00Z, 0C9G0ZX, 0C9G0ZZ, 0C9H00Z, 0C9H0ZX, 0C9H0ZZ, 0C9J00Z, 0C9J0ZX, 0C9J0ZZ, 0CB80ZX, 0CB80ZZ, 0CB90ZX, 0CB90ZZ, 0CBB0ZX, 0CBB0ZZ, 0CBC0ZX, 0CBC0ZZ, 0CBG0ZX, 0CBG0ZZ, 0CBH0ZX, 0CBH0ZZ, 0CBJ0ZX, 0CBJ0ZZ, 0CC80ZZ, 0CC90ZZ, 0CCB0ZZ, 0CCC0ZZ, 0CCG0ZZ, 0CCH0ZZ, 0CCJ0ZZ, 0CFB0ZZ, 0CFB7ZZ, 0CFBXZZ, 0CFC0ZZ, 0CFC7ZZ, 0CFCXZZ, 0CHA01Z, 0CHA0YZ, 0CHA71Z, 0CHA7YZ, 0CHA81Z, 0CHA8YZ, 0CJA0ZZ, 0CJAXZZ, 0CLB0ZZ, 0CLB7ZZ, 0CLB8ZZ, 0CLC0ZZ, 0CLC7ZZ, 0CLC8ZZ, 0CN80ZZ, 0CN90ZZ, 0CNB0ZZ, 0CNC0ZZ, 0CNG0ZZ, 0CNH0ZZ, 0CNJ0ZZ, 0CPA00Z, 0CPA0CZ, 0CPA0YZ, 0CPA7YZ, 0CPA8YZ, 0CQ80ZZ, 0CQ90ZZ, 0CQB0ZZ, 0CQC0ZZ, 0CQG0ZZ, 0CQH0ZZ, 0CQJ0ZZ, 0CSB0ZZ, 0CSC0ZZ, 0CT80ZZ, 0CT90ZZ, 0CTB0ZZ, 0CTC0ZZ, 0CTG0ZZ, 0CTH0ZZ, 0CTJ0ZZ, 0CVB0ZZ, 0CVB7ZZ, 0CVB8ZZ, 0CVC0ZZ, 0CVC7ZZ, 0CVC8ZZ, 0CWA00Z, 0CWA0CZ, 0CWA0YZ, 0CWA7YZ, 0CWA8YZ, 0CWAX0Z, 0CWAXCZ, D9060ZZ, D9061ZZ, D9062ZZ, D9063Z0, D9063ZZ, D9064ZZ, D9065ZZ, D9066ZZ, D91697Z, D91698Z, D91699Z, D9169BZ, D9169CZ, D9169YZ, D916B6Z, D916B7Z, D916B8Z, D916B9Z, D916BB1, D916BBZ, D916BCZ, D916BYZ, D926DZZ, D926HZZ, D926JZZ</code></div>
+
+<h3>Neck</h3>
+<div class="code-list"><code>0WB60ZX, 0WB60ZZ, 0WB6XZX, 0WB6XZZ, 0W360ZZ, 07520ZZ, 07510ZZ, 07B10ZX, 07B10ZZ, 07B20ZX, 07B20ZZ, 07C10ZZ, 07C20ZZ, 07T10ZZ, 07T20ZZ</code></div>
+
+<h3>Oral Cavity</h3>
+<div class="code-list"><code>0CBX0ZZ, 0CTX0ZZ, 0CBW0ZZ, 0CBY0ZZ, 0CBZ0ZZ, 0CTW0ZZ, 0CTY0ZZ, 0CTZ0ZZ, 0CT00ZZ, 0CB20ZZ, 0WB40ZX, 0WB40ZZ, 0WB4XZX, 0WB4XZZ, 0WB50ZX, 0WB50ZZ, 0WB5XZX, 0WB5XZZ, 0WC30ZZ, 0WC3XZZ, 0WC40ZZ, 0WC50ZZ, 0C570ZZ, 0C57XZZ, 0C97XZZ, 0C970ZZ, 0CB70ZX, 0CB70ZZ, 0CB7XZX, 0CB7XZZ, 0CC70ZZ, 0CC7XZZ, 0CR707Z, 0CR70JZ, 0CR70KZ, 0CR7X7Z, 0CR7XJZ, 0CR7XKZ, 0CT0XZZ, 0CT10ZZ, 0CT1XZZ, 0CT70ZZ, 0CT7XZZ, 0C540ZZ, 0C54XZZ, 0C550ZZ, 0C55XZZ, 0C560ZZ, 0C56XZZ, 0CB40ZX, 0CB40ZZ, 0CB4XZX, 0CB4XZZ, 0CC50ZZ, 0CC5XZZ, 0CC60ZZ, 0CC6XZZ, 0CC40ZZ, 0CC4XZZ, 0C520ZZ, 0C52XZZ, 0CB20ZX, 0CB2XZX, 0CB2XZZ, 0CC20ZZ, 0CC2XZZ</code></div>
+
+<h1 id="cpt-codes">6. CPT Codes (Curative-Intent Therapy)</h1>
 <!-- ============================================ -->
 
 <h3>Radiation Therapy</h3>
@@ -1376,7 +1369,7 @@ comorbidity_end   = DEATH_DT - INTERVAL '2 months'
 
 <h3>Table 1: Patient Characteristics</h3>
 <div class="step-box">
-    <p><strong>Columns:</strong> Overall (N = 2,766) | Hospice Enrolled (n = 1,840) | No Hospice (n = 926) | SMD</p>
+    <p><strong>Columns:</strong> Overall (N = 2,527) | Hospice Enrolled (n = 1,670) | No Hospice (n = 857) | SMD</p>
     <p><strong>Sections:</strong> Demographics · Clinical Characteristics · Prior Curative Therapy · Comorbidity · Outcomes</p>
     <p><strong>Statistics:</strong> Continuous variables — median (IQR); comorbidity — mean (SD); Binary/categorical — n (%). SMD = standardized mean difference; &lt;0.10 negligible, 0.10–&lt;0.20 modest, ≥0.20 potentially important (highlighted).</p>
 </div>
@@ -1401,12 +1394,12 @@ comorbidity_end   = DEATH_DT - INTERVAL '2 months'
 
 <h3>Table 2: Hospice Utilization and End-of-Life Care Patterns</h3>
 <div class="step-box">
-    <p><strong>Columns:</strong> Characteristic | N (2,766) or n (hospice-enrolled subset) | Notes</p>
+    <p><strong>Columns:</strong> Characteristic | N (2,527) or n (hospice-enrolled subset) | Notes</p>
 </div>
 <table>
     <tr><th>Metric</th><th>Denominator</th></tr>
-    <tr><td>Hospice enrolled</td><td>All (N = 2,766)</td></tr>
-    <tr><td>Hospice LOS, median (IQR)</td><td>Hospice-enrolled (n = 1,840)</td></tr>
+    <tr><td>Hospice enrolled</td><td>All (N = 2,527)</td></tr>
+    <tr><td>Hospice LOS, median (IQR)</td><td>Hospice-enrolled (n = 1,670)</td></tr>
     <tr><td>Short hospice stay (≤7 days)</td><td>Hospice-enrolled</td></tr>
     <tr><td>Days last IO → hospice enrollment, median (IQR)</td><td>Hospice-enrolled</td></tr>
     <tr><td>Days last IO → death, median (IQR) + categories (≤3, 4–14, 15–30, 31–90, &gt;90 days)</td><td>All</td></tr>
@@ -1417,7 +1410,7 @@ comorbidity_end   = DEATH_DT - INTERVAL '2 months'
 <div class="step-box">
     <p><strong>Table 3:</strong> Outcome = hospice enrollment (primary outcome)</p>
     <p><strong>Table 4:</strong> Outcome = in-hospital death (secondary outcome)</p>
-    <p><strong>Model N:</strong> 2,766 (no exclusions — treatment_era removed from model)</p>
+    <p><strong>Model N:</strong> 2,527</p>
     <p><strong>Method:</strong> statsmodels logit, Newton-Raphson, 500 iterations. OR (95% CI) reported.</p>
     <p><strong>Presentation:</strong> Variables with p &lt; 0.05 shown; all other covariates listed in footnote as "adjusted for".</p>
 </div>
@@ -1483,7 +1476,7 @@ Database: F:\CMS\cms_data.duckdb (DuckDB; SET memory_limit='24GB'; SET threads=1
 
 <p style="text-align: center; color: #666; margin-top: 3rem;">
     <em>End of Pipeline Specification</em><br>
-    Version 1.4 | Updated March 2026 | Final cohort N = 2,766
+    Version 1.5 | Updated March 2026 | Final cohort N = 2,527
 </p>
 
 </body>
