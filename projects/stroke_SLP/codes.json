@@ -1,0 +1,53 @@
+{
+    "stroke_dx": {
+        "SAH":         ["I60"],
+        "ICH":         ["I61"],
+        "Ischemic":    ["I63"],
+        "Unspecified": ["I64"]
+    },
+    "exclusion_dx": {
+        "Sequelae": ["I69"],
+        "TIA":      ["G45"]
+    },
+    "slp_hcpcs": {
+        "Evaluation": ["92521", "92522", "92523"],
+        "Treatment":  ["92507", "92526", "97129", "97130"],
+        "Swallowing": ["92610", "92611", "92612", "92616", "92617"]
+    },
+    "slp_revenue_center": {
+        "Speech_language_pathology_range": ["0440", "0449"]
+    },
+    "dysphagia_dx": {
+        "Dysphagia_prefix": ["R131"]
+    },
+    "aspiration_dx": {
+        "Aspiration_pneumonia": ["J690", "J698"]
+    },
+    "poa_dx": {
+        "Dysphagia_POA_prefix":    ["R131"],
+        "Aspiration_POA":          ["J690", "J698"]
+    },
+    "gtube_dx": {
+        "Gastrostomy_status": ["Z931"]
+    },
+    "gtube_hcpcs": {
+        "Placement":        ["43246", "49440"],
+        "Supplies_primary": ["B4087", "B4088"],
+        "Supplies_enteral": [
+            "B4034", "B4035", "B4036",
+            "B4081", "B4082", "B4083", "B4084", "B4085", "B4086", "B4087", "B4088",
+            "B4100",
+            "B4102", "B4103", "B4104",
+            "B4149", "B4150", "B4151", "B4152", "B4153", "B4154", "B4155",
+            "B4156", "B4157", "B4158", "B4159", "B4160", "B4161", "B4162"
+        ]
+    },
+    "gtube_pcs": {
+        "Gastrostomy_insertion": ["0DH63UZ", "0DH60UZ", "0DH64UZ", "0DH65UZ"]
+    },
+    "index_pcs": {
+        "Mechanical_ventilation":    ["5A1935Z", "5A1945Z", "5A1955Z"],
+        "PEG_placed":                ["0DH63UZ", "0DH64UZ", "0DH65UZ"],
+        "Tracheostomy_prefix":       ["0B11"]
+    }
+}

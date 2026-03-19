@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stroke + SLP Timing Study | Pipeline Specification</title>
+    <style>
+        :root {
+            --primary: #ba0c2f;
+            --secondary: #70071c;
+            --accent: #4a0513;
+            --light: #fdf5f6;
+            --border: #e0c4ca;
+            --success: #1a7a4a;
+            --warning: #b45309;
+            --code-bg: #f7eeef;
+            --gray: #a7b1b7;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #fff;
+        }
+        h1 { color: var(--primary); border-bottom: 3px solid var(--accent); padding-bottom: 0.5rem; margin-top: 2rem; }
+        h2 { color: var(--secondary); border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2.5rem; }
+        h3 { color: var(--primary); margin-top: 1.5rem; }
+        h4 { color: #555; margin-top: 1.2rem; font-size: 1rem; }
+        .header-block {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+        .header-block h1 { color: white; border: none; margin: 0; }
+        .header-block p { margin: 0.5rem 0 0 0; opacity: 0.9; }
+        .step-box {
+            background: var(--light);
+            border-left: 4px solid var(--secondary);
+            padding: 1rem 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .step-box.inclusion { border-left-color: var(--success); }
+        .step-box.exclusion { border-left-color: var(--accent); }
+        .step-box.warning   { border-left-color: var(--warning); }
+        .step-number {
+            display: inline-block;
+            background: var(--secondary);
+            color: white;
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            text-align: center; line-height: 28px;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+        .step-box.inclusion .step-number { background: var(--success); }
+        .step-box.exclusion .step-number { background: var(--accent); }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.9rem; }
+        th, td { border: 1px solid var(--border); padding: 0.6rem 0.8rem; text-align: left; }
+        th { background: var(--primary); color: white; font-weight: 600; }
+        tr:nth-child(even) { background: var(--light); }
+        tr:hover { background: #e9ecef; }
+        code {
+            background: var(--code-bg);
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            color: var(--secondary);
+        }
+        pre {
+            background: #2a0a11;
+            color: #f8f8f2;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+        pre code { background: none; color: inherit; padding: 0; }
+        .note {
+            background: #fdf5f6; border: 1px solid var(--border);
+            padding: 0.8rem 1rem; border-radius: 6px; margin: 1rem 0;
+        }
+        .note::before { content: "Note: "; font-weight: bold; color: var(--primary); }
+        .tip {
+            background: #f2f3f4; border: 1px solid var(--gray);
+            padding: 0.8rem 1rem; border-radius: 6px; margin: 1rem 0;
+        }
+        .tip::before { content: "Tip: "; font-weight: bold; color: #555; }
+        .file-ref {
+            background: #fdf5f6; border: 1px solid var(--border);
+            padding: 0.8rem 1rem; border-radius: 6px; margin: 1rem 0;
+        }
+        .file-ref::before { content: "File: "; font-weight: bold; color: var(--primary); }
+        .pipeline-flow {
+            display: flex; flex-wrap: wrap; gap: 0.5rem;
+            align-items: center; margin: 1.5rem 0;
+        }
+        .flow-step {
+            background: var(--primary); color: white;
+            padding: 0.5rem 1rem; border-radius: 6px;
+            font-size: 0.85rem; font-weight: 600;
+        }
+        .flow-arrow { color: var(--secondary); font-size: 1.5rem; font-weight: bold; }
+        .comparison-box {
+            border: 2px solid var(--secondary);
+            border-radius: 8px; padding: 1rem 1.5rem; margin: 1rem 0;
+        }
+        .comparison-box h4 { margin-top: 0; color: var(--secondary); }
+        .tag {
+            display: inline-block;
+            background: var(--accent); color: white;
+            padding: 0.15rem 0.5rem; border-radius: 4px;
+            font-size: 0.8em; font-weight: bold; margin-left: 0.3rem;
+            vertical-align: middle;
+        }
+        .tag.green { background: var(--success); }
+        .tag.blue  { background: var(--secondary); }
+        /* Table of contents */
+        .toc {
+            background: var(--light);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.2rem 1.8rem;
+            margin-bottom: 2rem;
+            display: inline-block;
+            min-width: 320px;
+        }
+        .toc h3 { margin-top: 0; color: var(--primary); font-size: 1rem; }
+        .toc ol { margin: 0; padding-left: 1.4rem; }
+        .toc li { margin: 0.25rem 0; font-size: 0.9rem; }
+        .toc a { color: var(--secondary); text-decoration: none; }
+        .toc a:hover { text-decoration: underline; color: var(--primary); }
+        .toc ol ol { list-style-type: lower-alpha; margin-top: 0.2rem; }
+        /* Outcome cards */
+        .outcome-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+            margin: 1.2rem 0;
+        }
+        .outcome-card {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.9rem 1.1rem;
+            background: #fff;
+        }
+        .outcome-card.primary { border-left: 4px solid var(--accent); }
+        .outcome-card.secondary { border-left: 4px solid var(--secondary); }
+        .outcome-card h4 { margin: 0 0 0.4rem 0; color: var(--primary); font-size: 0.95rem; }
+        .outcome-card .badge {
+            display: inline-block;
+            font-size: 0.72em; font-weight: bold;
+            padding: 0.1rem 0.45rem; border-radius: 3px;
+            margin-left: 0.3rem; vertical-align: middle;
+            background: var(--accent); color: white;
+        }
+        .outcome-card .badge.sec { background: var(--secondary); }
+        .outcome-card p { margin: 0.2rem 0; font-size: 0.85rem; color: #555; }
+        .outcome-card .codes { font-family: 'Consolas','Monaco',monospace; font-size: 0.8rem; color: var(--secondary); }
+    </style>
+</head>
+<body>
+
+<div class="header-block">
+    <h1>Stroke + SLP Timing Study &mdash; Pipeline Specification</h1>
+    <p>Early vs. Late Outpatient Speech-Language Pathology After Acute Stroke: Impact on Aspiration Pneumonia and Dysphagia Outcomes</p>
+    <p>Data source: CMS Medicare FFS Claims &bull; Database: <code>F:\CMS\cms_data.duckdb</code> &bull; Last updated: March 2026</p>
+</div>
+
+<div class="toc">
+    <h3>Contents</h3>
+    <ol>
+        <li><a href="#s1">Research Question</a></li>
+        <li><a href="#s2">Pipeline Overview</a></li>
+        <li><a href="#s3">Cohort Assembly</a>
+            <ol>
+                <li><a href="#s3-1">Data Sources</a></li>
+                <li><a href="#s3-2">Inclusion Criteria</a></li>
+                <li><a href="#s3-3">Exclusion Criteria</a></li>
+            </ol>
+        </li>
+        <li><a href="#s4">SLP Exposure Definition</a></li>
+        <li><a href="#s5">Propensity Score Matching</a></li>
+        <li><a href="#s6">Outcomes</a>
+            <ol>
+                <li><a href="#s6-1">Primary Outcomes</a></li>
+                <li><a href="#s6-2">Secondary Outcomes</a></li>
+                <li><a href="#s6-3">Reported Timepoints</a></li>
+            </ol>
+        </li>
+        <li><a href="#s7">Comorbidity Scoring</a></li>
+        <li><a href="#s8">Statistical Analysis</a></li>
+        <li><a href="#s9">Code Reference</a></li>
+        <li><a href="#s10">Key Design Decisions</a></li>
+    </ol>
+</div>
+
+<h1 id="s1">1. Research Question</h1>
+<p>Among Medicare patients hospitalized for acute stroke, does <strong>earlier initiation</strong> of outpatient
+speech-language pathology (SLP) services associate with lower rates of aspiration pneumonia, dysphagia
+diagnoses, and G-tube placement at 1 year post-discharge?</p>
+
+<p><strong>Exposure:</strong> Timing of first outpatient SLP contact after discharge, categorized as:</p>
+<table>
+    <tr><th>Group</th><th>Days from discharge</th><th>Role</th></tr>
+    <tr><td><code>0-14d</code></td><td>0 to 14 days</td><td>Treated (Comparison A)</td></tr>
+    <tr><td><code>15-30d</code></td><td>15 to 30 days</td><td>Treated (Comparison B)</td></tr>
+    <tr><td><code>31-90d</code></td><td>31 to 90 days</td><td>Reference (both comparisons)</td></tr>
+    <tr><td><code>No SLP</code></td><td>No outpatient SLP within 90 days</td><td>Descriptive only</td></tr>
+</table>
+
+<p><strong>Two pairwise PSM comparisons:</strong></p>
+<div class="comparison-box">
+    <h4>Comparison A <span class="tag">0-14d vs 31-90d</span></h4>
+    <p>Very early SLP (within 2 weeks of discharge) vs. late outpatient SLP (weeks 4-13). Captures effects of near-immediate post-acute SLP referral.</p>
+</div>
+<div class="comparison-box">
+    <h4>Comparison B <span class="tag blue">15-30d vs 31-90d</span></h4>
+    <p>Standard-early SLP (weeks 2-4) vs. late outpatient SLP. Captures the effect of timely standard-of-care referral.</p>
+</div>
+
+<h1 id="s2">2. Pipeline Overview</h1>
+
+<div class="pipeline-flow">
+    <div class="flow-step">stroke_cohort.sql</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">stroke_slp.sql</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">build_stroke_comorbidity.py</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">stroke_propensity.sql</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">stroke_outcomes.sql</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">stroke_psm.py</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">stroke_analysis.py</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">make_stroke_table.py</div>
+</div>
+
+<p>All SQL steps can be run in sequence via <code>run_pipeline.py</code>. The PSM and analysis steps are run manually after verifying the SQL output tables.</p>
+
+<table>
+    <tr><th>#</th><th>Script</th><th>Output Table / File</th><th>Description</th></tr>
+    <tr><td>1</td><td><code>stroke_cohort.sql</code></td><td><code>stroke_cohort</code></td><td>Identify index stroke admissions; apply inclusion/exclusion criteria</td></tr>
+    <tr><td>2</td><td><code>stroke_slp.sql</code></td><td><code>stroke_slp</code></td><td>SLP service claims; compute days_to_slp_outpt per patient</td></tr>
+    <tr><td>3</td><td><code>build_stroke_comorbidity.py</code></td><td><code>stroke_comorbidity</code></td><td>Elixhauser/van Walraven scoring from prior-year claims</td></tr>
+    <tr><td>4</td><td><code>stroke_propensity.sql</code></td><td><code>stroke_propensity</code></td><td>Assemble analytic dataset; assign slp_timing_group; PSM columns initialized to NULL</td></tr>
+    <tr><td>5</td><td><code>stroke_outcomes.sql</code></td><td><code>stroke_outcomes</code></td><td>Identify all outcomes in 365-day post-discharge window</td></tr>
+    <tr><td>6</td><td><code>stroke_psm.py</code></td><td>Updates <code>stroke_propensity</code></td><td>Two pairwise 1:1 greedy PSM; writes psm_matched_A/B back to table</td></tr>
+    <tr><td>7</td><td><code>stroke_analysis.py</code></td><td>Console / stdout</td><td>OR tables, Cox PH, KM curves, cost analysis for each comparison</td></tr>
+    <tr><td>8</td><td><code>make_stroke_table.py</code></td><td><code>stroke_slp_tables.xlsx</code></td><td>Formatted Excel workbook with all analytic tables</td></tr>
+</table>
+
+<h1 id="s3">3. Cohort Assembly</h1>
+<h2 id="s3-1">3.1 Data Sources</h2>
+<table>
+    <tr><th>Table</th><th>Content</th></tr>
+    <tr><td><code>medpar</code></td><td>Inpatient claims (index stroke admission)</td></tr>
+    <tr><td><code>carrier</code></td><td>Outpatient professional claims (SLP HCPCS)</td></tr>
+    <tr><td><code>outpatient</code></td><td>Hospital outpatient claims (SLP revenue center)</td></tr>
+    <tr><td><code>snf</code></td><td>Skilled nursing facility claims</td></tr>
+    <tr><td><code>hha</code></td><td>Home health agency claims</td></tr>
+    <tr><td><code>mbsf</code></td><td>Master beneficiary file (enrollment, death)</td></tr>
+</table>
+
+<h2 id="s3-2">3.2 Inclusion Criteria</h2>
+
+<div class="step-box inclusion">
+    <span class="step-number">1</span>
+    <strong>Inpatient admission with acute stroke as principal diagnosis</strong><br>
+    ICD-10-CM codes: <code>I60</code> (SAH), <code>I61</code> (ICH), <code>I63</code> (Ischemic), <code>I64</code> (Unspecified)<br>
+    Admitted via MEDPAR inpatient claim; principal diagnosis only (not secondary)
+</div>
+
+<div class="step-box inclusion">
+    <span class="step-number">2</span>
+    <strong>First (index) stroke admission</strong><br>
+    Earliest qualifying inpatient admission per beneficiary; no prior stroke claim (I60/I61/I63/I64) in the 6 months before admission
+</div>
+
+<div class="step-box inclusion">
+    <span class="step-number">3</span>
+    <strong>Continuous FFS Medicare enrollment</strong><br>
+    Must have both Part A and Part B coverage for 6 months prior to and at least 1 day after discharge (to capture post-discharge services)
+</div>
+
+<div class="step-box inclusion">
+    <span class="step-number">4</span>
+    <strong>Age 65+</strong><br>
+    Standard Medicare FFS beneficiary age cutoff
+</div>
+
+<h2 id="s3-3">3.3 Exclusion Criteria</h2>
+
+<div class="step-box exclusion">
+    <span class="step-number">X</span>
+    <strong>Hospice discharge</strong><br>
+    Discharge status codes indicating hospice at index hospitalization — patients unhealthy at baseline may confound results
+</div>
+
+<div class="step-box exclusion">
+    <span class="step-number">X</span>
+    <strong>Death within 30 days of discharge</strong><br>
+    Patients who die before the earliest possible SLP contact cannot be classified into any timing group
+</div>
+
+<div class="step-box exclusion">
+    <span class="step-number">X</span>
+    <strong>Stroke sequelae (I69) or TIA (G45) as principal diagnosis</strong><br>
+    These are not acute index strokes
+</div>
+
+<h1 id="s4">4. SLP Exposure Definition</h1>
+
+<h2>4.1 What Counts as Outpatient SLP</h2>
+<p>SLP services are captured from <strong>carrier claims</strong> (outpatient professional) and <strong>outpatient facility claims</strong> only. SNF and HHA SLP are explicitly excluded from the timing exposure because they reflect different care settings and severity gradients.</p>
+
+<table>
+    <tr><th>Source</th><th>Identifier</th><th>Values</th></tr>
+    <tr><td>Carrier (HCPCS)</td><td>Evaluation</td><td><code>92521, 92522, 92523</code></td></tr>
+    <tr><td>Carrier (HCPCS)</td><td>Treatment</td><td><code>92507, 92526, 97129, 97130</code></td></tr>
+    <tr><td>Carrier (HCPCS)</td><td>Swallowing</td><td><code>92610, 92611, 92612, 92616, 92617</code></td></tr>
+    <tr><td>Outpatient facility (revenue center)</td><td>Speech-language pathology</td><td><code>0440&ndash;0449</code></td></tr>
+</table>
+
+<h2>4.2 Timing Calculation</h2>
+<p><code>days_to_slp_outpt</code> = date of <em>first</em> qualifying outpatient SLP claim &minus; index discharge date.<br>
+If no qualifying claim exists within 90 days of discharge: <code>days_to_slp_outpt = NULL</code>.</p>
+
+<pre><code>-- Computed in stroke_slp.sql
+days_to_slp_outpt = MIN(claim_date) - index_dschg_date
+                    WHERE claim_date BETWEEN index_dschg_date
+                                        AND index_dschg_date + INTERVAL 90 DAY
+                      AND (hcpcs IN (slp_eval, slp_tx, slp_swallow)
+                           OR revenue_center BETWEEN '0440' AND '0449')
+                      AND setting IN ('carrier', 'outpatient')  -- NOT snf, NOT hha</code></pre>
+
+<h2>4.3 Timing Group Assignment</h2>
+<p>Assigned in <code>stroke_propensity.sql</code>. All four levels are present for the full cohort; PSM comparisons use only the relevant two levels each.</p>
+<pre><code>CASE
+    WHEN days_to_slp_outpt BETWEEN  0 AND 14 THEN '0-14d'
+    WHEN days_to_slp_outpt BETWEEN 15 AND 30 THEN '15-30d'
+    WHEN days_to_slp_outpt BETWEEN 31 AND 90 THEN '31-90d'
+    ELSE 'No SLP'
+END AS slp_timing_group</code></pre>
+
+<h1 id="s5">5. Propensity Score Matching</h1>
+<h2>5.1 Covariates</h2>
+<table>
+    <tr><th>Variable</th><th>Type</th><th>Rationale</th></tr>
+    <tr><td><code>age_at_adm</code></td><td>Continuous</td><td>Age drives both severity and SLP referral likelihood</td></tr>
+    <tr><td><code>sex</code></td><td>Categorical</td><td>Sex differences in stroke outcomes</td></tr>
+    <tr><td><code>race</code></td><td>Categorical</td><td>Disparities in SLP access and stroke outcomes</td></tr>
+    <tr><td><code>stroke_type</code></td><td>Categorical (SAH/ICH/Ischemic/Unspecified)</td><td>Major determinant of severity and SLP need</td></tr>
+    <tr><td><code>dysphagia_poa</code></td><td>Binary</td><td>Present-on-admission dysphagia directly drives SLP referral timing</td></tr>
+    <tr><td><code>aspiration_poa</code></td><td>Binary</td><td>Present-on-admission aspiration</td></tr>
+    <tr><td><code>index_los</code></td><td>Continuous</td><td>Longer LOS reflects severity; may delay outpatient referral</td></tr>
+    <tr><td><code>adm_source</code></td><td>Categorical</td><td>Transfer vs. ED admission affects post-acute planning</td></tr>
+    <tr><td><code>adm_year</code></td><td>Continuous</td><td>Secular trends in SLP practice patterns</td></tr>
+    <tr><td><code>van_walraven_score</code></td><td>Continuous</td><td>Overall comorbidity burden (Elixhauser summary)</td></tr>
+    <tr><td><code>mech_vent, peg_placed, trach_placed</code></td><td>Binary</td><td>Severe index admission procedures predicting SLP need</td></tr>
+    <tr><td><code>prior_stroke, afib, hypertension</code></td><td>Binary</td><td>Stroke-specific risk factors</td></tr>
+    <tr><td><code>drg_group</code></td><td>Categorical (bucketed DRG)</td><td>Clinical complexity proxy from index admission billing</td></tr>
+</table>
+
+<div class="note">Discharge disposition is intentionally <strong>excluded</strong> from the PS model — it is a post-treatment mediator (e.g., discharge to IRF may directly determine SLP timing) and its inclusion would introduce Berkson's bias. Instead, discharge group is used as an <strong>exact matching stratum</strong> (see 5.2 &amp; 5.3).</div>
+
+<h2>5.2 PSM Algorithm</h2>
+<ul>
+    <li>Logistic regression: P(treated=1 | covariates), fit separately for each comparison</li>
+    <li>Logit-transformed propensity score used for distance metric</li>
+    <li>1:1 greedy nearest-neighbor matching <em>without replacement</em></li>
+    <li>Caliper: <strong>0.2 &times; SD(logit PS)</strong> (Austin 2011 recommendation)</li>
+    <li><strong>Exact matching on discharge disposition group</strong> — each treated patient is matched only to a control discharged to the same setting (Home vs. Home, SNF vs. SNF, etc.). Treated patients with no eligible control in their discharge group are left unmatched.</li>
+    <li>Random shuffle of treated patients before matching to remove order effects (seed = 42)</li>
+    <li>Results written back to <code>stroke_propensity</code>: <code>psm_matched_A</code>, <code>psm_match_id_A</code>, <code>prop_score_A</code> (and _B for comparison B)</li>
+</ul>
+
+<h2>5.3 Discharge Disposition Groups</h2>
+<table>
+    <tr><th>Group</th><th>CMS STUS_CD values</th><th>Description</th></tr>
+    <tr><td><code>Home</code></td><td>01, 07</td><td>Routine home discharge / left AMA</td></tr>
+    <tr><td><code>Home+HHA</code></td><td>06</td><td>Home with organized home health services</td></tr>
+    <tr><td><code>SNF</code></td><td>03, 64</td><td>Skilled nursing facility / Medicaid nursing facility</td></tr>
+    <tr><td><code>IRF</code></td><td>62</td><td>Inpatient rehabilitation facility</td></tr>
+    <tr><td><code>LTACH</code></td><td>63</td><td>Long-term acute care hospital</td></tr>
+    <tr><td><code>Other</code></td><td>all remaining</td><td>Short-term transfer, ICF, swing bed, psychiatric, etc.</td></tr>
+</table>
+<div class="file-ref"><code>C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\stroke_psm.py</code></div>
+
+<h1 id="s6">6. Outcomes</h1>
+<p>All outcomes are measured in the <strong>365-day window</strong> following index discharge date.
+Time-to-event is measured from index discharge date for descriptive analyses; for the primary
+time-varying Cox, person-time begins at discharge and the exposure switches at <code>days_to_slp_outpt</code>.</p>
+
+<h2 id="s6-1">6.1 Primary Outcomes</h2>
+<p>Outcomes directly targeted by SLP swallowing rehabilitation — most likely to be modified by timing of SLP initiation.</p>
+
+<div class="outcome-grid">
+    <div class="outcome-card primary">
+        <h4>Aspiration Pneumonia <span class="badge">Primary</span></h4>
+        <p>Any inpatient or outpatient claim with a principal or secondary aspiration PNA diagnosis within 365 days of discharge.</p>
+        <p class="codes">J690, J698</p>
+        <p><em>Source:</em> MEDPAR, carrier, outpatient</p>
+    </div>
+    <div class="outcome-card primary">
+        <h4>Dysphagia Diagnosis <span class="badge">Primary</span></h4>
+        <p>Any claim with an oropharyngeal or unspecified dysphagia diagnosis (R131x prefix) after discharge. Captures ongoing swallowing impairment requiring clinical attention.</p>
+        <p class="codes">R131x (prefix match)</p>
+        <p><em>Source:</em> MEDPAR, carrier, outpatient</p>
+    </div>
+    <div class="outcome-card primary">
+        <h4>G-tube Placement / Dependence <span class="badge">Primary</span></h4>
+        <p>Gastrostomy status code, surgical placement CPT/PCS, or enteral nutrition supply HCPCS — any of which indicates initiation or ongoing tube-feeding dependence.</p>
+        <p class="codes">Z931 &bull; 43246, 49440 &bull; B4087, B4088, B408x &bull; 0DH63UZ, 0DH64UZ, 0DH65UZ</p>
+        <p><em>Source:</em> MEDPAR, carrier, outpatient, DME</p>
+    </div>
+</div>
+
+<h2 id="s6-2">6.2 Secondary Outcomes</h2>
+<p>Broader health outcomes and resource utilization to characterize the overall effect of SLP timing.</p>
+
+<div class="outcome-grid">
+    <div class="outcome-card secondary">
+        <h4>All-cause Mortality <span class="badge sec">Secondary</span></h4>
+        <p>Date of death from MBSF beneficiary summary file. Also serves as a competing event for non-mortality outcomes in the time-varying Cox model.</p>
+        <p class="codes">&mdash; (MBSF date of death)</p>
+        <p><em>Source:</em> MBSF</p>
+    </div>
+    <div class="outcome-card secondary">
+        <h4>All-cause Readmission <span class="badge sec">Secondary</span></h4>
+        <p>Any unplanned inpatient readmission after index discharge (transfers excluded). Counts and time-to-first reported.</p>
+        <p class="codes">&mdash;</p>
+        <p><em>Source:</em> MEDPAR</p>
+    </div>
+    <div class="outcome-card secondary">
+        <h4>SNF Placement (30d) <span class="badge sec">Secondary</span></h4>
+        <p>Any skilled nursing facility admission within 30 days of index discharge. Reflects post-acute care intensity.</p>
+        <p class="codes">&mdash;</p>
+        <p><em>Source:</em> SNF claims</p>
+    </div>
+    <div class="outcome-card secondary">
+        <h4>HHA Use (90d) <span class="badge sec">Secondary</span></h4>
+        <p>Any home health agency episode starting within 90 days of index discharge.</p>
+        <p class="codes">&mdash;</p>
+        <p><em>Source:</em> HHA claims</p>
+    </div>
+    <div class="outcome-card secondary">
+        <h4>Medicare Costs (1yr) <span class="badge sec">Secondary</span></h4>
+        <p>Total Medicare payments across all claim types (inpatient, outpatient, carrier, SNF, HHA, DME) in the 365-day post-discharge window. Analyzed as continuous variable (Mann-Whitney U).</p>
+        <p class="codes">&mdash; (sum of payment fields)</p>
+        <p><em>Source:</em> All claim types</p>
+    </div>
+</div>
+
+<h2 id="s6-3">6.3 Reported Timepoints</h2>
+<table>
+    <tr><th>Analysis</th><th>Timepoints</th><th>Notes</th></tr>
+    <tr><td>OR tables (descriptive)</td><td>90d, 180d, 365d</td><td>Measured from discharge; subject to immortal time at 90d</td></tr>
+    <tr><td>Time-varying Cox HR (primary)</td><td>365d follow-up (continuous)</td><td>Person-time split at days_to_slp_outpt; immortal time addressed</td></tr>
+    <tr><td>KM / cumulative incidence (descriptive)</td><td>90d, 180d, 365d plotted</td><td>Measured from discharge; log-rank p-value reported</td></tr>
+    <tr><td>Cost analysis</td><td>365d total</td><td>Mann-Whitney U; mean and median reported</td></tr>
+</table>
+
+<h1 id="s7">7. Comorbidity Scoring</h1>
+<p>Elixhauser comorbidity index using van Walraven et al. (2009) weights.</p>
+<ul>
+    <li>Look-back window: 12 months prior to index admission using all claim types</li>
+    <li>ICD-10-CM codes mapped per Quan et al. (2005) adaptation</li>
+    <li>Output: <code>van_walraven_score</code> (scalar) + individual comorbidity flags (30+ columns)</li>
+    <li>Stroke-specific flags added separately: <code>prior_stroke, afib, prior_tia, hypertension, dyslipid, smoking, dementia</code></li>
+</ul>
+<div class="file-ref"><code>C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\build_stroke_comorbidity.py</code></div>
+
+<h1 id="s8">8. Statistical Analysis</h1>
+<h2>8.1 Primary Analysis</h2>
+<p>For each PSM comparison (A and B):</p>
+<ol>
+    <li>
+        <strong>Time-varying Cox proportional hazards</strong> &mdash; PRIMARY <span class="tag green">Addresses immortal time</span><br>
+        Person-time is split at <code>days_to_slp_outpt</code> for each patient:
+        <ul>
+            <li>Segment 1: <code>[0, days_to_slp_outpt)</code> &mdash; <code>trt=0</code> for all patients (neither group has yet received SLP)</li>
+            <li>Segment 2: <code>[days_to_slp_outpt, censor]</code> &mdash; <code>trt=1</code> for treated group, <code>trt=0</code> for reference group</li>
+        </ul>
+        The HR on <code>trt</code> estimates the hazard of the early-SLP group vs. late-SLP group <em>after</em> SLP initiation, with pre-SLP immortal time correctly attributed as unexposed person-time for both groups.<br>
+        For non-mortality outcomes (aspiration, dysphagia), death is treated as a competing event (censored).
+    </li>
+    <li><strong>Odds ratios</strong> with 95% CI (Woolf method) at 90d / 180d / 365d &mdash; descriptive; measured from discharge date</li>
+    <li><strong>Kaplan-Meier</strong> survival / cumulative-incidence curves with log-rank test &mdash; descriptive; measured from discharge date</li>
+    <li><strong>Mann-Whitney U</strong> test for 1-year Medicare cost distributions</li>
+</ol>
+
+<div class="note">OR tables and KM curves are measured from discharge date (day 0) and are therefore subject to immortal time bias, particularly at the 90-day timepoint. They are reported for clinical interpretability alongside the primary time-varying Cox results.</div>
+
+<h2>8.2 Subgroup Analyses</h2>
+<ul>
+    <li>By stroke type: Ischemic vs. ICH</li>
+    <li>By age: &lt;75, 75&ndash;84, 85+</li>
+    <li>By dysphagia POA: present vs. absent</li>
+    <li>By Elixhauser tertile: Low / Mid / High comorbidity burden</li>
+</ul>
+
+<h2>8.3 Covariate Balance Assessment</h2>
+<p>Standardized mean differences (SMD) reported pre- and post-match for all PSM covariates.
+Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
+
+<h1 id="s9">9. Code Reference</h1>
+
+<table>
+    <tr><th>File</th><th>Location</th><th>Role</th></tr>
+    <tr>
+        <td><code>run_pipeline.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Orchestrates SQL steps 1&ndash;5 in sequence</td>
+    </tr>
+    <tr>
+        <td><code>stroke_cohort.sql</code></td>
+        <td><code>projects/stroke_SLP/queries/</code></td>
+        <td>Index stroke cohort identification</td>
+    </tr>
+    <tr>
+        <td><code>stroke_slp.sql</code></td>
+        <td><code>projects/stroke_SLP/queries/</code></td>
+        <td>SLP claim identification; days_to_slp_outpt</td>
+    </tr>
+    <tr>
+        <td><code>stroke_comorbidity.sql</code></td>
+        <td><code>projects/stroke_SLP/queries/</code></td>
+        <td>Comorbidity flag SQL (called by Python script)</td>
+    </tr>
+    <tr>
+        <td><code>build_stroke_comorbidity.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Elixhauser / van Walraven scoring</td>
+    </tr>
+    <tr>
+        <td><code>stroke_propensity.sql</code></td>
+        <td><code>projects/stroke_SLP/queries/</code></td>
+        <td>Assemble analytic dataset with slp_timing_group</td>
+    </tr>
+    <tr>
+        <td><code>stroke_outcomes.sql</code></td>
+        <td><code>projects/stroke_SLP/queries/</code></td>
+        <td>All outcomes in 365-day follow-up window</td>
+    </tr>
+    <tr>
+        <td><code>stroke_psm.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Two pairwise PSM comparisons; writes match flags back to DB</td>
+    </tr>
+    <tr>
+        <td><code>stroke_analysis.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Time-varying Cox PH (primary), OR tables, KM curves, cost analysis</td>
+    </tr>
+    <tr>
+        <td><code>make_stroke_table.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Export formatted Excel workbook</td>
+    </tr>
+    <tr>
+        <td><code>codes.json</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>All ICD/HCPCS/PCS codes used, organized by category</td>
+    </tr>
+    <tr>
+        <td><code>stroke_slp_tables.xlsx</code></td>
+        <td><code>F:\CMS\projects\stroke_SLP\</code></td>
+        <td>Final output workbook (generated by make_stroke_table.py)</td>
+    </tr>
+</table>
+
+<h1 id="s10">10. Key Design Decisions</h1>
+
+<div class="step-box warning">
+    <strong>Why Early vs. Late (not SLP vs. No SLP)?</strong><br>
+    A naive SLP vs. No SLP comparison is heavily confounded by indication: sicker, more dysphagic patients
+    are more likely to receive SLP <em>and</em> have worse outcomes. Even after PSM, residual confounding is
+    expected because there are unmeasured severity variables. Restricting to patients who <em>did</em> receive
+    outpatient SLP (varying only in timing) dramatically reduces this confounding and addresses a more
+    actionable clinical question: does it matter <em>how quickly</em> we refer?
+</div>
+
+<div class="step-box warning">
+    <strong>Why 1-year follow-up?</strong><br>
+    Median time to aspiration pneumonia event is ~289 days post-discharge; 56% of 5-year events occur
+    within year 1. SLP's mechanism (swallowing rehabilitation) operates primarily in the first 6&ndash;12
+    months of recovery. Competing risks from death and enrollment disenrollment severely dilute signal
+    in years 3&ndash;5. Primary window: 365 days; secondary analysis can extend to 2 years if warranted.
+</div>
+
+<div class="step-box warning">
+    <strong>Why no landmark analysis?</strong><br>
+    Landmark analysis (conditioning survival at day 30) was considered but rejected: (1) only 0.8% of
+    the cohort had aspiration PNA before day 30, so the landmark provides negligible survival selection
+    benefit; (2) the cohort already excludes 30-day post-discharge deaths, eliminating the primary
+    motivation for a landmark; (3) the PSM on timing groups is the methodologically preferred approach
+    for a timing-based exposure.
+</div>
+
+</body>
+</html>

@@ -1,14 +1,19 @@
 """
 run_pipeline.py
-Runs the stroke+SLP SQL pipeline in order:
+Runs the stroke+SLP pipeline in order:
   1. stroke_cohort.sql
   2. stroke_slp.sql
-  3. stroke_comorbidity.sql
+  3. build_stroke_comorbidity.py  (subprocess)
   4. stroke_propensity.sql
   5. stroke_outcomes.sql
+  6. stroke_psm.py                (subprocess)
+  7. stroke_analysis.py           (subprocess)
 
-Each file is split on semicolons and executed statement-by-statement.
+Each SQL file is split on semicolons and executed statement-by-statement.
 SELECT results are printed after each step.
+
+Pass a start step number to resume from a specific step, e.g.:
+    python run_pipeline.py 4
 """
 
 import sys
@@ -22,15 +27,17 @@ import time
 DB_PATH = r"F:\CMS\cms_data.duckdb"
 
 STEPS_PRE = [
-    ("1 - Cohort",       r"F:\CMS\projects\stroke_SLP\queries\stroke_cohort.sql"),
-    ("2 - SLP Exposure", r"F:\CMS\projects\stroke_SLP\queries\stroke_slp.sql"),
+    ("1 - Cohort",       r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\queries\stroke_cohort.sql"),
+    ("2 - SLP Exposure", r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\queries\stroke_slp.sql"),
 ]
 
-COMORBIDITY_SCRIPT = r"F:\CMS\projects\stroke_SLP\build_stroke_comorbidity.py"
+COMORBIDITY_SCRIPT = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\build_stroke_comorbidity.py"
+PSM_SCRIPT         = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\stroke_psm.py"
+ANALYSIS_SCRIPT    = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\stroke_analysis.py"
 
 STEPS_POST = [
-    ("4 - Propensity",   r"F:\CMS\projects\stroke_SLP\queries\stroke_propensity.sql"),
-    ("5 - Outcomes",     r"F:\CMS\projects\stroke_SLP\queries\stroke_outcomes.sql"),
+    ("4 - Propensity",   r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\queries\stroke_propensity.sql"),
+    ("5 - Outcomes",     r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\queries\stroke_outcomes.sql"),
 ]
 
 
@@ -85,32 +92,49 @@ def connect():
     return con
 
 
+def run_subprocess(step_label, script_path):
+    print(f"\n{'='*70}")
+    print(f"  STEP {step_label}  (subprocess)")
+    print(f"{'='*70}")
+    t0 = time.time()
+    subprocess.run([sys.executable, script_path], check=True)
+    print(f"  Done in {time.time() - t0:.1f}s")
+
+
 def main():
-    print(f"Connecting to {DB_PATH} ...")
+    start_step = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+    print(f"Starting pipeline from step {start_step} ...")
+
     con = connect()
     print("Connected.\n")
 
-    for label, path in STEPS_PRE:
-        run_step(con, label, path)
+    if start_step <= 1:
+        run_step(con, "1 - Cohort",       STEPS_PRE[0][1])
+    if start_step <= 2:
+        run_step(con, "2 - SLP Exposure", STEPS_PRE[1][1])
 
-    # Step 3 — Comorbidity runs as a separate process (needs its own DB connection)
+    if start_step <= 3:
+        con.close()
+        run_subprocess("3 - Comorbidity", COMORBIDITY_SCRIPT)
+        con = connect()
+
+    if start_step <= 4:
+        run_step(con, "4 - Propensity", STEPS_POST[0][1])
+    if start_step <= 5:
+        run_step(con, "5 - Outcomes",   STEPS_POST[1][1])
+
     con.close()
-    print(f"\n{'='*70}")
-    print("  STEP 3 - Comorbidity  (subprocess)")
-    print(f"{'='*70}")
-    t0 = time.time()
-    subprocess.run([sys.executable, COMORBIDITY_SCRIPT], check=True)
-    print(f"  Done in {time.time() - t0:.1f}s")
+
+    if start_step <= 6:
+        run_subprocess("6 - PSM",      PSM_SCRIPT)
+    if start_step <= 7:
+        run_subprocess("7 - Analysis", ANALYSIS_SCRIPT)
 
     con = connect()
-    for label, path in STEPS_POST:
-        run_step(con, label, path)
-
     print(f"\n{'='*70}")
     print("  PIPELINE COMPLETE")
     print(f"{'='*70}\n")
 
-    # Quick row-count sanity check across all output tables
     for tbl in ["stroke_cohort", "stroke_slp", "stroke_comorbidity",
                 "stroke_propensity", "stroke_outcomes"]:
         try:

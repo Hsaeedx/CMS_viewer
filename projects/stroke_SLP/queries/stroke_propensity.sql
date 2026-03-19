@@ -1,10 +1,18 @@
 -- stroke_propensity.sql
--- Assembles one row per patient with SLP exposure flag, demographics,
+-- Assembles one row per patient with SLP timing exposure, demographics,
 -- stroke characteristics, and comorbidity covariates for PSM.
 --
--- SLP exposure (slp_group):
---   'SLP'    = slp_any_90d = 1
---   'No SLP' = slp_any_90d = 0
+-- Cohort: ALL stroke patients (days_to_slp_outpt = NULL if no outpatient SLP within 90d)
+--
+-- SLP exposure (slp_timing_group):
+--   '0-14d'  = first outpatient SLP contact within  0-14 days of discharge
+--   '15-30d' = first outpatient SLP contact within 15-30 days of discharge
+--   '31-90d' = first outpatient SLP contact within 31-90 days of discharge (reference)
+--   'No SLP' = no outpatient SLP contact within 90 days of discharge
+--
+-- Two pairwise PSM comparisons (run by stroke_psm.py):
+--   Comparison A: 0-14d  vs 31-90d  → psm_matched_A / psm_match_id_A
+--   Comparison B: 15-30d vs 31-90d  → psm_matched_B / psm_match_id_B
 --
 -- PSM covariates (do NOT include discharge disposition — it is a mediator):
 --   age_at_adm, sex, race
@@ -14,7 +22,18 @@
 --   adm_year (secular trends)
 --   van_walraven_score + individual comorbidity flags
 --
--- Output table: stroke_propensity (with psm_matched flag to be added by Python)
+-- Discharge group (dschg_group): used for EXACT MATCHING in PSM — treated patients
+--   are matched only to controls with the same discharge disposition group.
+--   Groups: Home | Home+HHA | SNF | IRF | LTACH | Other
+--   Standard CMS discharge status codes:
+--     Home:     01 (routine), 07 (AMA)
+--     Home+HHA: 06 (home + organized home health)
+--     SNF:      03, 64 (Medicaid nursing facility)
+--     IRF:      62 (inpatient rehabilitation facility)
+--     LTACH:    63 (long-term acute care hospital)
+--     Other:    all remaining codes
+--
+-- Output table: stroke_propensity (PSM columns populated by stroke_psm.py)
 
 SET memory_limit='24GB';
 SET threads=12;
@@ -31,6 +50,16 @@ SELECT
     c.index_los,
     c.stroke_type,
     c.dschg_status,
+    CASE c.dschg_status
+        WHEN '01' THEN 'Home'
+        WHEN '07' THEN 'Home'
+        WHEN '06' THEN 'Home+HHA'
+        WHEN '03' THEN 'SNF'
+        WHEN '64' THEN 'SNF'
+        WHEN '62' THEN 'IRF'
+        WHEN '63' THEN 'LTACH'
+        ELSE       'Other'
+    END AS dschg_group,
     c.drg_cd,
     c.adm_source,
     c.index_pmt,
@@ -52,26 +81,19 @@ SELECT
     c.race,
     YEAR(c.index_adm_date) AS adm_year,
 
-    -- SLP exposure (all sources, 30 days post-discharge — original analysis)
-    COALESCE(s.slp_any_30d, 0) AS slp_any_30d,
-    COALESCE(s.slp_hha,     0) AS slp_hha,
-    COALESCE(s.slp_snf,     0) AS slp_snf,
-    COALESCE(s.slp_outpt,   0) AS slp_outpt,
-    COALESCE(s.slp_eval,    0) AS slp_eval,
-    COALESCE(s.slp_swallow, 0) AS slp_swallow,
-    COALESCE(s.slp_tx,      0) AS slp_tx,
-    s.first_slp_date,
-    s.days_to_slp,
-
-    -- Outpatient-only SLP (landmark timing analysis — carrier + outpatient, NOT SNF/HHA)
-    COALESCE(s.slp_outpt_any_90d, 0) AS slp_outpt_any_90d,
+    -- SLP timing (outpatient only — carrier + outpatient facility, NOT SNF/HHA)
     s.days_to_slp_outpt,
     COALESCE(s.slp_outpt_0_14d,  0) AS slp_outpt_0_14d,
     COALESCE(s.slp_outpt_15_30d, 0) AS slp_outpt_15_30d,
     COALESCE(s.slp_outpt_31_90d, 0) AS slp_outpt_31_90d,
 
-    -- Primary exposure group label (original analysis)
-    CASE WHEN COALESCE(s.slp_any_30d, 0) = 1 THEN 'SLP' ELSE 'No SLP' END AS slp_group,
+    -- Primary exposure: 4-level timing group
+    CASE
+        WHEN s.days_to_slp_outpt BETWEEN  0 AND 14 THEN '0-14d'
+        WHEN s.days_to_slp_outpt BETWEEN 15 AND 30 THEN '15-30d'
+        WHEN s.days_to_slp_outpt BETWEEN 31 AND 90 THEN '31-90d'
+        ELSE 'No SLP'
+    END AS slp_timing_group,
 
     -- Comorbidity
     e.van_walraven_score,
@@ -115,10 +137,15 @@ SELECT
     e.smoking,
     e.dementia,
 
-    -- PSM match flag and propensity score — to be populated by Python PSM script
-    FALSE AS psm_matched,
-    NULL::VARCHAR AS psm_match_id,
-    NULL::DOUBLE AS prop_score
+    -- PSM match flags — populated by stroke_psm.py
+    -- Comparison A: 0-14d vs 31-90d
+    FALSE     AS psm_matched_A,
+    NULL::VARCHAR AS psm_match_id_A,
+    NULL::DOUBLE  AS prop_score_A,
+    -- Comparison B: 15-30d vs 31-90d
+    FALSE     AS psm_matched_B,
+    NULL::VARCHAR AS psm_match_id_B,
+    NULL::DOUBLE  AS prop_score_B
 
 FROM stroke_cohort c
 LEFT JOIN stroke_slp         s ON s.DSYSRTKY = c.DSYSRTKY
@@ -126,7 +153,7 @@ LEFT JOIN stroke_comorbidity e ON e.DSYSRTKY = c.DSYSRTKY;
 
 -- ── Summary: covariate balance check (pre-PSM) ────────────────────────────────
 SELECT
-    slp_group,
+    slp_timing_group,
     COUNT(*)                                              AS n,
     ROUND(AVG(age_at_adm), 1)                            AS mean_age,
     ROUND(100.0 * SUM(CASE WHEN sex='Male'       THEN 1 ELSE 0 END) / COUNT(*), 1) AS pct_male,
@@ -144,5 +171,5 @@ SELECT
     ROUND(AVG(afib), 3)                                  AS pct_afib,
     ROUND(AVG(hypertension), 3)                          AS pct_htn
 FROM stroke_propensity
-GROUP BY slp_group
-ORDER BY slp_group;
+GROUP BY slp_timing_group
+ORDER BY slp_timing_group;

@@ -17,7 +17,7 @@
 --   G-tube             — Z931, CPT 43246/49440, HCPCS B4087/B4088, PCS 0DH63UZ/0DH60UZ
 --   SNF placement      — any SNF admission within 30d of discharge
 --   Home health use    — any HHA claim within 90d of discharge
---   Total Medicare cost — sum of payments across all claim types in 1825d
+--   Total Medicare cost — sum of payments across all claim types in 365d
 --
 -- Output table: stroke_outcomes
 
@@ -46,7 +46,7 @@ SELECT
 FROM stroke_cohort c
 JOIN inp_claimsk_all i ON i.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(i.ADMSN_DT, '%Y%m%d') > c.index_dschg_date
-  AND TRY_STRPTIME(i.ADMSN_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 1825 DAY;
+  AND TRY_STRPTIME(i.ADMSN_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY;
 
 -- Outpatient (dysphagia, aspiration PNA, G-tube dx)
 CREATE OR REPLACE TEMP TABLE _out AS
@@ -62,7 +62,7 @@ SELECT
 FROM stroke_cohort c
 JOIN out_claimsk_all o ON o.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(o.THRU_DT, '%Y%m%d') > c.index_dschg_date
-  AND TRY_STRPTIME(o.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 1825 DAY;
+  AND TRY_STRPTIME(o.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY;
 
 -- Carrier (dysphagia, aspiration PNA, G-tube CPT/HCPCS)
 CREATE OR REPLACE TEMP TABLE _car AS
@@ -76,7 +76,7 @@ SELECT
 FROM stroke_cohort c
 JOIN car_linek_all cl ON cl.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') > c.index_dschg_date
-  AND TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 1825 DAY
+  AND TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY
   AND (LEFT(cl.LINE_ICD_DGNS_CD, 4) IN ('R131', 'Z931', 'J690', 'J698')
     OR cl.HCPCS_CD IN ('43246', '49440', 'B4087', 'B4088'));
 
@@ -91,7 +91,7 @@ SELECT
 FROM stroke_cohort c
 JOIN out_revenuek_all r ON r.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(r.THRU_DT, '%Y%m%d') > c.index_dschg_date
-  AND TRY_STRPTIME(r.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 1825 DAY
+  AND TRY_STRPTIME(r.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY
   AND r.HCPCS_CD IN ('43246', '49440', 'B4087', 'B4088');
 
 -- SNF (skilled nursing facility placement within 30d)
@@ -99,11 +99,11 @@ CREATE OR REPLACE TEMP TABLE _snf AS
 SELECT
     c.DSYSRTKY,
     MIN(TRY_STRPTIME(s.ADMSN_DT, '%Y%m%d')) AS first_snf_date,
-    SUM(TRY_CAST(s.PMT_AMT AS DOUBLE)) AS snf_pmt_1825d
+    SUM(TRY_CAST(s.PMT_AMT AS DOUBLE)) AS snf_pmt_365d
 FROM stroke_cohort c
 JOIN snf_claimsk_all s ON s.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(s.ADMSN_DT, '%Y%m%d') > c.index_dschg_date
-  AND TRY_STRPTIME(s.ADMSN_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 1825 DAY
+  AND TRY_STRPTIME(s.ADMSN_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY
 GROUP BY c.DSYSRTKY;
 
 -- Home health (any HHA claim within 90d)
@@ -111,11 +111,11 @@ CREATE OR REPLACE TEMP TABLE _hha AS
 SELECT
     c.DSYSRTKY,
     MIN(TRY_STRPTIME(h.THRU_DT, '%Y%m%d')) AS first_hha_date,
-    SUM(TRY_CAST(h.PMT_AMT AS DOUBLE)) AS hha_pmt_1825d
+    SUM(TRY_CAST(h.PMT_AMT AS DOUBLE)) AS hha_pmt_365d
 FROM stroke_cohort c
 JOIN hha_claimsk_all h ON h.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(h.THRU_DT, '%Y%m%d') > c.index_dschg_date
-  AND TRY_STRPTIME(h.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 1825 DAY
+  AND TRY_STRPTIME(h.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY
 GROUP BY c.DSYSRTKY;
 
 -- ── STEP 2: Outcome lookups on small temp tables ──────────────────────────────
@@ -134,7 +134,7 @@ CREATE OR REPLACE TEMP TABLE _readmit AS
 SELECT
     DSYSRTKY,
     MIN(adm_date)  AS first_readmit_date,
-    COUNT(DISTINCT adm_date) AS n_readmissions_1825d
+    COUNT(DISTINCT adm_date) AS n_readmissions_365d
 FROM _inp
 GROUP BY DSYSRTKY;
 
@@ -261,18 +261,18 @@ SELECT
 FROM stroke_cohort c
 JOIN car_linek_all cl ON cl.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') > c.index_dschg_date
-  AND TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 1825 DAY;
+  AND TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY;
 
--- Total Medicare cost in 1825d post-discharge (all claim types)
+-- Total Medicare cost in 365d post-discharge (all claim types)
 -- Inpatient + Outpatient (claim-level PMT_AMT) + all Carrier lines + SNF + HHA
 -- _rev (revenue line level) excluded to avoid double-counting outpatient claim PMT_AMT
 CREATE OR REPLACE TEMP TABLE _cost AS
-SELECT DSYSRTKY, SUM(PMT_AMT) AS total_pmt_1825d FROM (
+SELECT DSYSRTKY, SUM(PMT_AMT) AS total_pmt_365d FROM (
     SELECT DSYSRTKY, PMT_AMT                       FROM _inp
     UNION ALL SELECT DSYSRTKY, PMT_AMT             FROM _out
     UNION ALL SELECT DSYSRTKY, PMT_AMT             FROM _car_cost
-    UNION ALL SELECT DSYSRTKY, snf_pmt_1825d       FROM _snf
-    UNION ALL SELECT DSYSRTKY, hha_pmt_1825d       FROM _hha
+    UNION ALL SELECT DSYSRTKY, snf_pmt_365d       FROM _snf
+    UNION ALL SELECT DSYSRTKY, hha_pmt_365d       FROM _hha
 ) GROUP BY DSYSRTKY;
 
 -- MBSF: death date
@@ -302,7 +302,7 @@ SELECT
     -- All-cause readmission
     ra.first_readmit_date,
     DATEDIFF('day', c.index_dschg_date, ra.first_readmit_date) AS days_to_readmit,
-    COALESCE(ra.n_readmissions_1825d, 0) AS n_readmissions_1825d,
+    COALESCE(ra.n_readmissions_365d, 0) AS n_readmissions_365d,
 
     -- Recurrent stroke
     rs.first_recur_stroke_date,
@@ -329,16 +329,16 @@ SELECT
     DATEDIFF('day', c.index_dschg_date, snf.first_snf_date)         AS days_to_snf,
     (snf.first_snf_date IS NOT NULL AND
      DATEDIFF('day', c.index_dschg_date, snf.first_snf_date) <= 30) AS snf_30d,
-    COALESCE(snf.snf_pmt_1825d, 0)                                   AS snf_pmt_1825d,
+    COALESCE(snf.snf_pmt_365d, 0)                                   AS snf_pmt_365d,
 
     -- Home health
     hha.first_hha_date,
     (hha.first_hha_date IS NOT NULL AND
      DATEDIFF('day', c.index_dschg_date, hha.first_hha_date) <= 90) AS hha_90d,
-    COALESCE(hha.hha_pmt_1825d, 0)                                   AS hha_pmt_1825d,
+    COALESCE(hha.hha_pmt_365d, 0)                                   AS hha_pmt_365d,
 
-    -- Total Medicare cost (post-discharge 1825d, excludes index admission)
-    COALESCE(co.total_pmt_1825d, 0)                                  AS total_pmt_1825d
+    -- Total Medicare cost (post-discharge 365d, excludes index admission)
+    COALESCE(co.total_pmt_365d, 0)                                  AS total_pmt_365d
 
 FROM stroke_cohort c
 LEFT JOIN _death         d   ON d.DSYSRTKY  = c.DSYSRTKY
@@ -355,18 +355,16 @@ LEFT JOIN _cost          co  ON co.DSYSRTKY  = c.DSYSRTKY;
 -- ── Summary ───────────────────────────────────────────────────────────────────
 SELECT
     COUNT(*)                                                                AS n_total,
-    SUM(CASE WHEN days_to_death IS NOT NULL AND days_to_death <=  180 THEN 1 ELSE 0 END) AS died_180d,
-    SUM(CASE WHEN days_to_death IS NOT NULL AND days_to_death <=  365 THEN 1 ELSE 0 END) AS died_365d,
-    SUM(CASE WHEN days_to_death IS NOT NULL AND days_to_death <= 1095 THEN 1 ELSE 0 END) AS died_1095d,
-    SUM(CASE WHEN days_to_death IS NOT NULL AND days_to_death <= 1825 THEN 1 ELSE 0 END) AS died_1825d,
-    SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <=  180 THEN 1 ELSE 0 END) AS readmit_180d,
-    SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <=  365 THEN 1 ELSE 0 END) AS readmit_365d,
-    SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <= 1095 THEN 1 ELSE 0 END) AS readmit_1095d,
-    SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <= 1825 THEN 1 ELSE 0 END) AS readmit_1825d,
-    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <=  180 THEN 1 ELSE 0 END) AS recur_180d,
-    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <=  365 THEN 1 ELSE 0 END) AS recur_365d,
-    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <= 1825 THEN 1 ELSE 0 END) AS recur_1825d,
+    SUM(CASE WHEN days_to_death IS NOT NULL AND days_to_death <=  90 THEN 1 ELSE 0 END) AS died_90d,
+    SUM(CASE WHEN days_to_death IS NOT NULL AND days_to_death <= 180 THEN 1 ELSE 0 END) AS died_180d,
+    SUM(CASE WHEN days_to_death IS NOT NULL AND days_to_death <= 365 THEN 1 ELSE 0 END) AS died_365d,
+    SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <=  90 THEN 1 ELSE 0 END) AS readmit_90d,
+    SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <= 180 THEN 1 ELSE 0 END) AS readmit_180d,
+    SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <= 365 THEN 1 ELSE 0 END) AS readmit_365d,
+    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <=  90 THEN 1 ELSE 0 END) AS recur_90d,
+    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <= 180 THEN 1 ELSE 0 END) AS recur_180d,
+    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <= 365 THEN 1 ELSE 0 END) AS recur_365d,
     SUM(snf_30d::INT)                                                       AS snf_30d,
     SUM(hha_90d::INT)                                                       AS hha_90d,
-    ROUND(AVG(total_pmt_1825d), 0)                                          AS mean_cost_1825d
+    ROUND(AVG(total_pmt_365d), 0)                                          AS mean_cost_365d
 FROM stroke_outcomes;
