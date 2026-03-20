@@ -13,45 +13,44 @@ Each SQL file is split on semicolons and executed statement-by-statement.
 SELECT results are printed after each step.
 
 Pass a start step number to resume from a specific step, e.g.:
-    python run_pipeline.py 4
+    python run_pipeline.py 6
 """
 
-import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
-
-import duckdb
+import os
 import re
 import subprocess
+import sys
 import time
+from pathlib import Path
 
-DB_PATH = r"F:\CMS\cms_data.duckdb"
+from dotenv import load_dotenv
 
-STEPS_PRE = [
-    ("1 - Cohort",       r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\queries\stroke_cohort.sql"),
-    ("2 - SLP Exposure", r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\queries\stroke_slp.sql"),
-]
+# Load .env from project root (two levels up: stroke_SLP -> projects -> root)
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-COMORBIDITY_SCRIPT = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\build_stroke_comorbidity.py"
-PSM_SCRIPT         = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\stroke_psm.py"
-ANALYSIS_SCRIPT    = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\stroke_analysis.py"
+DB_PATH     = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+CMS_DIR     = Path(os.getenv("CMS_directory", ""))
+PROJECT_DIR = Path(__file__).resolve().parent
+QUERIES_DIR = PROJECT_DIR / "queries"
 
-STEPS_POST = [
-    ("4 - Propensity",   r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\queries\stroke_propensity.sql"),
-    ("5 - Outcomes",     r"C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\queries\stroke_outcomes.sql"),
-]
+STEPS_SQL = {
+    1: ("1 - Cohort",       QUERIES_DIR / "stroke_cohort.sql"),
+    2: ("2 - SLP Exposure", QUERIES_DIR / "stroke_slp.sql"),
+    4: ("4 - Propensity",   QUERIES_DIR / "stroke_propensity.sql"),
+    5: ("5 - Outcomes",     QUERIES_DIR / "stroke_outcomes.sql"),
+}
+
+STEPS_PY = {
+    3: ("3 - Comorbidity", PROJECT_DIR / "build_stroke_comorbidity.py"),
+    6: ("6 - PSM",         PROJECT_DIR / "stroke_psm.py"),
+    7: ("7 - Analysis",    PROJECT_DIR / "stroke_analysis.py"),
+}
 
 
 def split_sql(text):
-    """Split SQL on semicolons, comment-aware to avoid splitting inside -- comments."""
-    # Strip single-line comments before splitting — avoids splitting on ';' in comments
-    # and avoids DuckDB parser issues with unicode box-drawing chars in comments.
-    text = re.sub(r'--[^\n]*', '', text)
-    stmts = []
-    for raw in text.split(";"):
-        s = raw.strip()
-        if s:
-            stmts.append(s)
-    return stmts
+    """Split SQL on semicolons, stripping single-line comments first."""
+    text = re.sub(r"--[^\n]*", "", text)
+    return [s.strip() for s in text.split(";") if s.strip()]
 
 
 def run_step(con, label, path):
@@ -59,10 +58,7 @@ def run_step(con, label, path):
     print(f"  STEP {label}")
     print(f"{'='*70}")
 
-    with open(path, encoding="utf-8") as f:
-        sql = f.read()
-
-    stmts = split_sql(sql)
+    stmts = split_sql(path.read_text(encoding="utf-8"))
     t0 = time.time()
 
     for i, stmt in enumerate(stmts, 1):
@@ -75,19 +71,20 @@ def run_step(con, label, path):
                 print(df.to_string(index=False))
         except Exception as e:
             print(f"\n  [ERROR in statement {i}]: {e}")
-            print(f"  Statement preview: {stmt[:200].encode('ascii', errors='replace').decode()}")
+            print(f"  Statement preview: {stmt[:200]}")
             raise
 
-    elapsed = time.time() - t0
-    print(f"\n  Done in {elapsed:.1f}s")
+    print(f"\n  Done in {time.time() - t0:.1f}s")
 
 
 def connect():
-    con = duckdb.connect(DB_PATH, read_only=False)
+    import duckdb
+    temp_dir = (CMS_DIR / "duckdb_temp").as_posix()
+    con = duckdb.connect(str(DB_PATH), read_only=False)
     con.execute(
-        "SET memory_limit='24GB'; "
-        "SET threads=12; "
-        "SET temp_directory='F:\\\\CMS\\\\duckdb_temp';"
+        f"SET memory_limit='24GB'; "
+        f"SET threads=12; "
+        f"SET temp_directory='{temp_dir}';"
     )
     return con
 
@@ -97,38 +94,37 @@ def run_subprocess(step_label, script_path):
     print(f"  STEP {step_label}  (subprocess)")
     print(f"{'='*70}")
     t0 = time.time()
-    subprocess.run([sys.executable, script_path], check=True)
+    subprocess.run([sys.executable, str(script_path)], check=True)
     print(f"  Done in {time.time() - t0:.1f}s")
 
 
 def main():
     start_step = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     print(f"Starting pipeline from step {start_step} ...")
+    print(f"  DB:      {DB_PATH}")
+    print(f"  Scripts: {PROJECT_DIR}")
 
     con = connect()
     print("Connected.\n")
 
-    if start_step <= 1:
-        run_step(con, "1 - Cohort",       STEPS_PRE[0][1])
-    if start_step <= 2:
-        run_step(con, "2 - SLP Exposure", STEPS_PRE[1][1])
+    for step in [1, 2]:
+        if start_step <= step:
+            run_step(con, *STEPS_SQL[step])
 
     if start_step <= 3:
         con.close()
-        run_subprocess("3 - Comorbidity", COMORBIDITY_SCRIPT)
+        run_subprocess(*STEPS_PY[3])
         con = connect()
 
-    if start_step <= 4:
-        run_step(con, "4 - Propensity", STEPS_POST[0][1])
-    if start_step <= 5:
-        run_step(con, "5 - Outcomes",   STEPS_POST[1][1])
+    for step in [4, 5]:
+        if start_step <= step:
+            run_step(con, *STEPS_SQL[step])
 
     con.close()
 
-    if start_step <= 6:
-        run_subprocess("6 - PSM",      PSM_SCRIPT)
-    if start_step <= 7:
-        run_subprocess("7 - Analysis", ANALYSIS_SCRIPT)
+    for step in [6, 7]:
+        if start_step <= step:
+            run_subprocess(*STEPS_PY[step])
 
     con = connect()
     print(f"\n{'='*70}")

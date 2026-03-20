@@ -22,8 +22,12 @@ Sheets:
   Table8_KM_A / _B           — KM survival / cumulative incidence
 """
 
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import duckdb
 import numpy as np
@@ -34,8 +38,9 @@ from lifelines.statistics import logrank_test
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
-DB_PATH  = r"F:\CMS\cms_data.duckdb"
-OUT_PATH = r"F:\CMS\projects\stroke_SLP\stroke_slp_tables.xlsx"
+_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+OUT_PATH = _out_dir / "stroke_slp_tables.xlsx"
 
 MAX_FOLLOW = 365
 TIMEPOINTS = [90, 180, 365]
@@ -506,8 +511,9 @@ def write_km_sheet(wb, sheet_name, matched_df, treat_grp, ctrl_grp):
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+_out_dir.mkdir(parents=True, exist_ok=True)
 print("Connecting ...")
-con = duckdb.connect(DB_PATH, read_only=True)
+con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 
 print("Loading full cohort ...")
@@ -571,7 +577,7 @@ for comp_label, treat_grp, ctrl_grp, match_col in COMPARISONS:
 
 con.close()
 
-wb.save(OUT_PATH)
+wb.save(str(OUT_PATH))
 print(f"\nSaved: {OUT_PATH}")
 sheets = [ws.title for ws in wb.worksheets]
 print("Sheets: " + ", ".join(sheets))

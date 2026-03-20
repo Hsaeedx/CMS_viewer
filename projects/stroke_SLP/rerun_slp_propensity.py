@@ -9,18 +9,25 @@ and the HHA/hospice discharge exclusion:
 Cohort, comorbidity, and outcomes tables are unchanged and are NOT re-run.
 """
 
+import os
+import re
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+import time
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import duckdb
-import re
-import time
 
-DB_PATH = r"F:\CMS\cms_data.duckdb"
+DB_PATH     = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+CMS_DIR     = Path(os.getenv("CMS_directory", ""))
+PROJECT_DIR = Path(__file__).resolve().parent
+QUERIES_DIR = PROJECT_DIR / "queries"
 
 STEPS = [
-    ("2 - SLP Exposure",  r"F:\CMS\projects\stroke_SLP\queries\stroke_slp.sql"),
-    ("4 - Propensity",    r"F:\CMS\projects\stroke_SLP\queries\stroke_propensity.sql"),
+    ("2 - SLP Exposure", QUERIES_DIR / "stroke_slp.sql"),
+    ("4 - Propensity",   QUERIES_DIR / "stroke_propensity.sql"),
 ]
 
 
@@ -33,7 +40,7 @@ def run_step(con, label, path):
     print(f"\n{'='*70}")
     print(f"  STEP {label}")
     print(f"{'='*70}")
-    with open(path, encoding="utf-8") as f:
+    with open(str(path), encoding="utf-8") as f:
         sql = f.read()
     stmts = split_sql(sql)
     t0 = time.time()
@@ -53,8 +60,9 @@ def run_step(con, label, path):
 
 def main():
     print(f"Connecting to {DB_PATH} ...")
-    con = duckdb.connect(DB_PATH, read_only=False)
-    con.execute("SET memory_limit='24GB'; SET threads=12; SET temp_directory='F:\\\\CMS\\\\duckdb_temp';")
+    con = duckdb.connect(str(DB_PATH), read_only=False)
+    temp_dir = (CMS_DIR / "duckdb_temp").as_posix()
+    con.execute(f"SET memory_limit='24GB'; SET threads=12; SET temp_directory='{temp_dir}';")
     print("Connected.\n")
 
     for label, path in STEPS:

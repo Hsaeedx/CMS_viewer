@@ -13,8 +13,12 @@ Sheets:
   7. LM7_ByDischDest  — Cox PH stratified by discharge destination (home/SNF/IRF/HHA)
 """
 
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import duckdb
 import numpy as np
@@ -25,15 +29,17 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-DB_PATH  = r"F:\CMS\cms_data.duckdb"
-OUT_PATH = r"F:\CMS\projects\stroke_SLP\stroke_landmark_tables_home_hha.xlsx"
+_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+_out_dir.mkdir(parents=True, exist_ok=True)
+DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+OUT_PATH = _out_dir / "stroke_landmark_tables_home_hha.xlsx"
 LANDMARK = 90
 MAX_FOLLOW = 1885
 MAX_FOLLOW_LM = MAX_FOLLOW - LANDMARK
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 print("Loading data...")
-con = duckdb.connect(DB_PATH, read_only=True)
+con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
     SELECT
@@ -663,6 +669,6 @@ write_sheet(wb, 'LM7_ByDischDest',
     '(Reference: SLP 0–14d; discharge destination fixed within stratum — '
     'addresses IRF/SNF timing confounding)')
 
-wb.save(OUT_PATH)
+wb.save(str(OUT_PATH))
 print(f"Saved: {OUT_PATH}")
 print(f"Sheets: {', '.join(ws.title for ws in wb.worksheets)}")

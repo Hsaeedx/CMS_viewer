@@ -4,18 +4,24 @@ Cohort characteristics table for presentation.
 Columns: Full stroke cohort | Study cohort (home/HHA, SLP, survived 90d) | 0-14d | 15-30d | 31-90d
 Output: F:\CMS\projects\stroke_SLP\table1_psm.xlsx
 """
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import duckdb, numpy as np, pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
-DB_PATH  = r"F:\CMS\cms_data.duckdb"
-OUT_PATH = r"F:\CMS\projects\stroke_SLP\table1_psm.xlsx"
+_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+_out_dir.mkdir(parents=True, exist_ok=True)
+DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+OUT_PATH = _out_dir / "table1_psm.xlsx"
 
 print("Loading data...")
-con = duckdb.connect(DB_PATH, read_only=True)
+con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
     SELECT
@@ -134,6 +140,7 @@ df_table = pd.DataFrame(rows, columns=headers)
 # ── Write Excel ────────────────────────────────────────────────────────────────
 print(f"Writing {OUT_PATH} ...")
 
+
 HEADER_FILL  = PatternFill('solid', fgColor='1F4E79')
 HEADER_FONT  = Font(bold=True, color='FFFFFF', size=10)
 SECTION_FILL = PatternFill('solid', fgColor='BDD7EE')
@@ -183,5 +190,5 @@ for i in range(2, len(cohorts) + 2):
     ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 18
 
 ws.freeze_panes = f'B{header_row + 1}'
-wb.save(OUT_PATH)
+wb.save(str(OUT_PATH))
 print(f"Saved: {OUT_PATH}")

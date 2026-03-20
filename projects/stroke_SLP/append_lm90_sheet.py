@@ -1,15 +1,22 @@
 """Appends LM8_LM90 sheet (90-day landmark sensitivity) to the existing Excel."""
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 import duckdb, numpy as np, pandas as pd
 from lifelines import CoxPHFitter
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-OUT_PATH = r"F:\CMS\projects\stroke_SLP\stroke_landmark_tables_home_hha.xlsx"
+_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+OUT_PATH = _out_dir / "stroke_landmark_tables_home_hha.xlsx"
 LANDMARK, MAX_FOLLOW_LM = 90, 1795
 
-con = duckdb.connect(r'F:\CMS\cms_data.duckdb', read_only=True)
+con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
     SELECT p.DSYSRTKY, p.age_at_adm, p.sex, p.stroke_type,
@@ -168,7 +175,7 @@ for col in ws.columns:
     max_len = max((len(str(c.value)) if c.value else 0) for c in col)
     ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
 
-wb.save(OUT_PATH)
+wb.save(str(OUT_PATH))
 print(f"Saved LM8_LM90 to {OUT_PATH}")
 print(f"Sheets: {', '.join(s.title for s in wb.worksheets)}")
 print(f"\nN={len(lm_slp):,}  (vs 113,172 at 30d landmark — {113172-len(lm_slp):,} additional deaths day 30-90)")

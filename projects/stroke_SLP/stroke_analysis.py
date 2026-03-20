@@ -24,8 +24,12 @@ Run after:
   stroke_psm.py          (populates psm_matched_A/B in stroke_propensity)
 """
 
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import duckdb
 import numpy as np
@@ -34,7 +38,7 @@ from scipy.stats import chi2_contingency, mannwhitneyu
 from lifelines import CoxTimeVaryingFitter, KaplanMeierFitter
 from lifelines.statistics import logrank_test
 
-DB_PATH    = r"F:\CMS\cms_data.duckdb"
+DB_PATH = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
 MAX_FOLLOW = 365
 TIMEPOINTS = [90, 180, 365]
 
@@ -412,7 +416,7 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
 
 def main():
     print(f"Connecting to {DB_PATH} ...")
-    con = duckdb.connect(DB_PATH, read_only=True)
+    con = duckdb.connect(str(DB_PATH), read_only=True)
     con.execute("SET memory_limit='24GB'; SET threads=12;")
 
     for comp_label, treat_grp, ctrl_grp, match_col in COMPARISONS:

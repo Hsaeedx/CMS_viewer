@@ -1,9 +1,15 @@
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 import duckdb, numpy as np, pandas as pd
 from lifelines import CoxPHFitter
 
-con = duckdb.connect(r'F:\CMS\cms_data.duckdb', read_only=True)
+DB_PATH = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
     SELECT p.DSYSRTKY, p.age_at_adm, p.sex, p.stroke_type,

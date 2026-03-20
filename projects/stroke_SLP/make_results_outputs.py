@@ -5,8 +5,12 @@ Generates:
   1. forest_plot.png  — primary outcomes (Aspiration PNA + PEG/G-tube), 600 DPI
   2. results_table.xlsx — all outcomes except recurrent stroke
 """
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import duckdb
 import numpy as np
@@ -19,15 +23,17 @@ import matplotlib.gridspec as gridspec
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-DB_PATH      = r"F:\CMS\cms_data.duckdb"
-FOREST_PATH  = r"F:\CMS\projects\stroke_SLP\forest_plot.png"
-RESULTS_PATH = r"F:\CMS\projects\stroke_SLP\results_table.xlsx"
+_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+_out_dir.mkdir(parents=True, exist_ok=True)
+DB_PATH      = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+FOREST_PATH  = _out_dir / "forest_plot.png"
+RESULTS_PATH = _out_dir / "results_table.xlsx"
 LANDMARK     = 90
 MAX_FOLLOW_LM = 1795   # 1885 - 90
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 print("Loading data...")
-con = duckdb.connect(DB_PATH, read_only=True)
+con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
     SELECT
@@ -296,7 +302,7 @@ fig.suptitle(
     fontsize=11, fontweight='bold', color='#1F4E79', y=0.99, va='top'
 )
 
-plt.savefig(FOREST_PATH, dpi=600, bbox_inches='tight', facecolor='white')
+plt.savefig(str(FOREST_PATH), dpi=600, bbox_inches='tight', facecolor='white')
 plt.close()
 print(f"Saved: {FOREST_PATH}")
 
@@ -427,5 +433,5 @@ for i, w in enumerate(col_widths, 1):
     ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
 
 ws.freeze_panes = f'A{hdr_row + 1}'
-wb.save(RESULTS_PATH)
+wb.save(str(RESULTS_PATH))
 print(f"Saved: {RESULTS_PATH}")

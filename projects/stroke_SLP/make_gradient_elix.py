@@ -4,8 +4,12 @@ make_gradient_elix.py
 1. dose_response_gradient.png — HR by SLP timing group showing dose-response
 2. elix_stratified_results.xlsx — Cox PH stratified by Elixhauser (van Walraven) quartile
 """
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import duckdb
 import numpy as np
@@ -17,15 +21,17 @@ import matplotlib.pyplot as plt
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-DB_PATH       = r"F:\CMS\cms_data.duckdb"
-GRADIENT_PATH = r"F:\CMS\projects\stroke_SLP\dose_response_gradient.png"
-ELIX_PATH     = r"F:\CMS\projects\stroke_SLP\elix_stratified_results.xlsx"
+_out_dir      = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+_out_dir.mkdir(parents=True, exist_ok=True)
+DB_PATH       = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+GRADIENT_PATH = _out_dir / "dose_response_gradient.png"
+ELIX_PATH     = _out_dir / "elix_stratified_results.xlsx"
 LANDMARK      = 90
 MAX_FOLLOW_LM = 1795
 
 # ── Load & filter ─────────────────────────────────────────────────────────────
 print("Loading data...")
-con = duckdb.connect(DB_PATH, read_only=True)
+con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
     SELECT p.DSYSRTKY, p.age_at_adm, p.sex, p.stroke_type,
@@ -275,7 +281,7 @@ ax.spines['bottom'].set_color('#AAAAAA')
 ax.tick_params(axis='both', color='#AAAAAA')
 
 plt.tight_layout()
-plt.savefig(GRADIENT_PATH, dpi=600, bbox_inches='tight', facecolor='white')
+plt.savefig(str(GRADIENT_PATH), dpi=600, bbox_inches='tight', facecolor='white')
 plt.close()
 print(f"Saved: {GRADIENT_PATH}")
 
@@ -457,5 +463,5 @@ ws.merge_cells(start_row=fn_row, start_column=1,
                end_row=fn_row,   end_column=len(DISPLAY_COLS))
 
 ws.freeze_panes = f'A{hdr_row + 1}'
-wb.save(ELIX_PATH)
+wb.save(str(ELIX_PATH))
 print(f"Saved: {ELIX_PATH}")

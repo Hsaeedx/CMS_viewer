@@ -12,16 +12,23 @@ is no 27x data explosion. Three single-pass scans with inline GROUP BY:
 Then final join of three small per-patient tables.
 """
 
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
-sys.path.insert(0, r'F:\CMS\projects\opscc')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+_opscc_dir = Path(os.getenv("project_paths", ".")) / "opscc"
+sys.path.insert(0, str(_opscc_dir))
 
 import duckdb
 import time
 from collections import defaultdict
 from comorbidity import elixhauser_mapping, comorbid_weights
 
-DB_PATH = r'F:\CMS\cms_data.duckdb'
+DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+CMS_DIR  = Path(os.getenv("CMS_directory", ""))
 
 # ── Column lists ──────────────────────────────────────────────────────────────
 
@@ -171,11 +178,12 @@ def main():
     sql = build_sql()
 
     print('Connecting...')
-    con = duckdb.connect(DB_PATH, read_only=False)
+    con = duckdb.connect(str(DB_PATH), read_only=False)
+    temp_dir = (CMS_DIR / "duckdb_temp").as_posix()
     con.execute(
         "SET memory_limit='24GB'; "
         "SET threads=12; "
-        "SET temp_directory='F:\\\\CMS\\\\duckdb_temp';"
+        f"SET temp_directory='{temp_dir}';"
     )
 
     print('Building stroke_comorbidity (no UNNEST, 3 parallel scans)...')

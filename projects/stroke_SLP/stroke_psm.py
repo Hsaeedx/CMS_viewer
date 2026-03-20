@@ -15,8 +15,12 @@ Covariates in PS model:
   drg_group (bucketed DRG)
 """
 
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import duckdb
 import numpy as np
@@ -26,7 +30,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 import time
 
-DB_PATH     = r"F:\CMS\cms_data.duckdb"
+DB_PATH = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
 RANDOM_SEED = 42
 
 # ── Covariate lists ────────────────────────────────────────────────────────────
@@ -197,7 +201,7 @@ def run_comparison(df_all, label, treat_grp, ctrl_grp):
 
 def main():
     print(f"Connecting to {DB_PATH} ...")
-    con = duckdb.connect(DB_PATH, read_only=False)
+    con = duckdb.connect(str(DB_PATH), read_only=False)
     con.execute("SET memory_limit='24GB'; SET threads=12;")
 
     print("Loading stroke_propensity ...")

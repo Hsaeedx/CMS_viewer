@@ -5,8 +5,7 @@ This workspace is meant for research projects related to the CMS (Medicare claim
 
 Only use powershell for this project. If you use bash, it must be simply to access powershell.
 
-All data files and research project specific files are located at F:\CMS
-All MAIN project files are located at C:\Users\hsaee\Desktop\CMS_viewer
+Read the .env file to understand file locations. The database is on an external drive.
 
 You MUST read the documentation of the different tables and columns at F:\CMS\Documentation
 

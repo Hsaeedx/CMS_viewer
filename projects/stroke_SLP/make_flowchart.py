@@ -3,14 +3,21 @@ make_flowchart.py
 Generates a cohort flowchart as a high-resolution PNG for PowerPoint.
 Horizontal (landscape, left-to-right) layout.
 """
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
-OUT_PATH = r"F:\CMS\projects\stroke_SLP\cohort_flowchart.png"
+_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+_out_dir.mkdir(parents=True, exist_ok=True)
+OUT_PATH = _out_dir / "cohort_flowchart.png"
 
 # ── Layout constants ────────────────────────────────────────────────────────
 fig, ax = plt.subplots(figsize=(20, 9))
@@ -170,7 +177,7 @@ ax.text(9.0, 0.35,
 
 
 plt.tight_layout(pad=0.3)
-plt.savefig(OUT_PATH, dpi=600, bbox_inches='tight',
+plt.savefig(str(OUT_PATH), dpi=600, bbox_inches='tight',
             facecolor='white', edgecolor='none')
 plt.close()
 print(f"Saved: {OUT_PATH}")

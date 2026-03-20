@@ -1,7 +1,15 @@
+import os
 import sys
-sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 import duckdb
-con = duckdb.connect(r'F:\CMS\cms_data.duckdb', read_only=True)
+
+DB_PATH = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+
+con = duckdb.connect(str(DB_PATH), read_only=True)
 print("stroke_propensity columns:")
 print(con.execute("DESCRIBE stroke_propensity").df().to_string())
 con.close()
