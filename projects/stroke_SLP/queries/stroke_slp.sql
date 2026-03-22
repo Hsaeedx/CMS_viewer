@@ -3,7 +3,7 @@
 --
 -- Primary exposure (original): any SLP service within 30 days of index discharge date.
 --
--- Landmark analysis exposure (new): all post-discharge SLP settings, within 90 days.
+-- Time-varying Cox exposure: all post-discharge SLP settings, within 90 days.
 --   Includes: carrier HCPCS codes, outpatient facility rev center 044x,
 --             HHA rev center 044x, SNF rev center 044x.
 --   Hospice patients are already excluded from stroke_cohort (dschg_status 50/51).
@@ -29,7 +29,7 @@
 
 SET memory_limit='24GB';
 SET threads=12;
-SET temp_directory='F:\CMS\duckdb_temp';
+-- temp_directory set by run_pipeline.py via SET temp_directory
 
 -- ── Step 1: Carrier claims with SLP HCPCS codes ───────────────────────────────
 
@@ -126,18 +126,16 @@ SELECT DSYSRTKY, svc_date, days_from_dschg, slp_type FROM _slp_hha
 UNION ALL
 SELECT DSYSRTKY, svc_date, days_from_dschg, slp_type FROM _slp_snf;
 
--- ── Step 5b: All post-discharge SLP, all non-hospice settings (90 days) ───────
--- Used for landmark timing analysis.
--- Hospice already excluded from stroke_cohort via dschg_status 50/51.
+-- ── Step 5b: Clinic-only SLP (carrier + outpatient facility) ─────────────────
+-- Used for slp_timing_group assignment and inclusion criterion.
+-- Cohort is restricted to home-discharged patients whose first SLP contact
+-- was in an outpatient/clinic setting (not HHA). This ensures both comparison
+-- groups are ambulatory enough to access clinic-based care.
 
 CREATE OR REPLACE TEMP TABLE _slp_outpt_only AS
 SELECT DSYSRTKY, svc_date, days_from_dschg, slp_type FROM _slp_car
 UNION ALL
-SELECT DSYSRTKY, svc_date, days_from_dschg, slp_type FROM _slp_out
-UNION ALL
-SELECT DSYSRTKY, svc_date, days_from_dschg, slp_type FROM _slp_hha
-UNION ALL
-SELECT DSYSRTKY, svc_date, days_from_dschg, slp_type FROM _slp_snf;
+SELECT DSYSRTKY, svc_date, days_from_dschg, slp_type FROM _slp_out;
 
 -- ── Final: Build stroke_slp ───────────────────────────────────────────────────
 
@@ -172,12 +170,13 @@ SELECT
     MIN(CASE WHEN s.days_from_dschg >= 0 THEN s.svc_date     END) AS first_slp_date,
     MIN(CASE WHEN s.days_from_dschg >= 0 THEN s.days_from_dschg END) AS days_to_slp,
 
-    -- ── Outpatient-only SLP (landmark timing analysis) ────────────────────────
-    -- Carrier + outpatient facility only; excludes SNF and HHA
+    -- ── All-setting SLP (time-varying Cox timing exposure) ────────────────────
+    -- All post-discharge settings: carrier, outpatient facility, SNF, HHA.
+    -- Intragroup comparisons are ensured by PSM exact matching on dschg_group.
     MAX(CASE WHEN o.days_from_dschg BETWEEN 0 AND 90 THEN 1 ELSE 0 END) AS slp_outpt_any_90d,
     MIN(CASE WHEN o.days_from_dschg >= 0 THEN o.days_from_dschg END)    AS days_to_slp_outpt,
 
-    -- Timing group flags (mutually exclusive: first outpatient SLP contact)
+    -- Timing group flags (mutually exclusive: first clinic SLP contact)
     CASE
         WHEN MIN(CASE WHEN o.days_from_dschg >= 0 THEN o.days_from_dschg END) BETWEEN 0  AND 14 THEN 1
         ELSE 0
@@ -189,7 +188,27 @@ SELECT
     CASE
         WHEN MIN(CASE WHEN o.days_from_dschg >= 0 THEN o.days_from_dschg END) BETWEEN 31 AND 90 THEN 1
         ELSE 0
-    END AS slp_outpt_31_90d
+    END AS slp_outpt_31_90d,
+
+    -- Inclusion criterion: first SLP contact of any type must be clinic-based (not HHA/SNF).
+    -- TRUE  = first SLP was outpatient/carrier (eligible)
+    -- FALSE = first SLP was HHA or no clinic SLP exists within 90d (excluded in propensity step)
+    CASE
+        WHEN MIN(CASE WHEN o.days_from_dschg >= 0 THEN o.days_from_dschg END) IS NOT NULL
+         AND (
+               -- No HHA/SNF SLP at all
+               MIN(CASE WHEN s.days_from_dschg >= 0
+                         AND s.slp_type IN ('rev_center_hha', 'rev_center_snf')
+                        THEN s.days_from_dschg END) IS NULL
+               OR
+               -- Clinic SLP is on same day or earlier than first HHA/SNF SLP
+               MIN(CASE WHEN o.days_from_dschg >= 0 THEN o.days_from_dschg END)
+                   <= MIN(CASE WHEN s.days_from_dschg >= 0
+                               AND s.slp_type IN ('rev_center_hha', 'rev_center_snf')
+                              THEN s.days_from_dschg END)
+             )
+        THEN TRUE ELSE FALSE
+    END AS first_slp_is_clinic
 
 FROM stroke_cohort c
 LEFT JOIN _slp_all      s ON s.DSYSRTKY = c.DSYSRTKY
@@ -205,12 +224,14 @@ SELECT
     SUM(slp_eval)         AS n_slp_eval,
     SUM(slp_swallow)      AS n_slp_swallow,
     SUM(slp_tx)           AS n_slp_tx,
-    -- Outpatient-only (landmark analysis)
-    SUM(slp_outpt_any_90d) AS n_slp_outpt_90d,
-    SUM(slp_outpt_0_14d)   AS n_slp_0_14d,
-    SUM(slp_outpt_15_30d)  AS n_slp_15_30d,
-    SUM(slp_outpt_31_90d)  AS n_slp_31_90d,
-    COUNT(*)               AS n_total,
-    ROUND(100.0 * SUM(slp_any_30d)       / COUNT(*), 1) AS pct_slp_30d,
-    ROUND(100.0 * SUM(slp_outpt_any_90d) / COUNT(*), 1) AS pct_slp_outpt_90d
+    -- Clinic-only timing groups (time-varying Cox)
+    SUM(slp_outpt_any_90d)    AS n_slp_clinic_90d,
+    SUM(slp_outpt_0_14d)      AS n_slp_0_14d,
+    SUM(slp_outpt_15_30d)     AS n_slp_15_30d,
+    SUM(slp_outpt_31_90d)     AS n_slp_31_90d,
+    SUM(first_slp_is_clinic::INT) AS n_first_slp_clinic,
+    COUNT(*)                  AS n_total,
+    ROUND(100.0 * SUM(slp_any_30d)           / COUNT(*), 1) AS pct_slp_30d,
+    ROUND(100.0 * SUM(slp_outpt_any_90d)     / COUNT(*), 1) AS pct_slp_clinic_90d,
+    ROUND(100.0 * SUM(first_slp_is_clinic::INT) / COUNT(*), 1) AS pct_first_slp_clinic
 FROM stroke_slp;

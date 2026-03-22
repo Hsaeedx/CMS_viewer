@@ -12,7 +12,8 @@
 --   Mortality          — from MBSF DEATH_DT
 --   All-cause readmit  — any inpatient admission after index discharge
 --   Recurrent stroke   — inpatient admission with I60/I61/I63/I64 as principal dx
---   Aspiration PNA     — J690, J698 (inp + out + car)
+--   Aspiration PNA     — J690, J698 (inp + out + car only; SNF/HHA excluded)  [primary]
+--   All Pneumonia      — J09–J18, J690, J698 (inp + out + car only; SNF/HHA excluded)  [secondary; breakdown by 3-char code]
 --   Dysphagia          — LEFT(code,4)='R131' (inp + out + car)
 --   G-tube             — Z931, CPT 43246/49440, HCPCS B4087/B4088, PCS 0DH63UZ/0DH60UZ
 --   SNF placement      — any SNF admission within 30d of discharge
@@ -23,7 +24,7 @@
 
 SET memory_limit='24GB';
 SET threads=12;
-SET temp_directory='F:\CMS\duckdb_temp';
+-- temp_directory set by run_pipeline.py via SET temp_directory
 
 -- ── STEP 1: Extract post-discharge claims (one scan per large table) ──────────
 
@@ -78,6 +79,7 @@ JOIN car_linek_all cl ON cl.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') > c.index_dschg_date
   AND TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY
   AND (LEFT(cl.LINE_ICD_DGNS_CD, 4) IN ('R131', 'Z931', 'J690', 'J698')
+    OR LEFT(cl.LINE_ICD_DGNS_CD, 3) IN ('J09','J10','J11','J12','J13','J14','J15','J16','J17','J18')
     OR cl.HCPCS_CD IN ('43246', '49440', 'B4087', 'B4088'));
 
 -- Outpatient revenue center (G-tube HCPCS)
@@ -157,6 +159,39 @@ SELECT DSYSRTKY, MIN(thru_date) AS first_aspiration_date FROM (
     UNION ALL
     SELECT DSYSRTKY, thru_date FROM _car
     WHERE LINE_ICD_DGNS_CD IN ('J690', 'J698')
+) GROUP BY DSYSRTKY;
+
+-- All pneumonia (J09-J18 + J69, any source) — secondary outcome with code breakdown
+-- Also captures the 3-character ICD code of the first qualifying event for breakdown analysis.
+CREATE OR REPLACE TEMP TABLE _pneumonia_all AS
+SELECT
+    DSYSRTKY,
+    MIN(thru_date)    AS first_pneumonia_date,
+    -- 3-char code of earliest event (for breakdown table)
+    FIRST(pna_code ORDER BY thru_date) AS first_pneumonia_code
+FROM (
+    SELECT DSYSRTKY, thru_date,
+           LEFT(code, 3) AS pna_code
+    FROM _inp,
+    UNNEST([PRNCPAL_DGNS_CD, ADMTG_DGNS_CD,
+            ICD_DGNS_CD1,  ICD_DGNS_CD2,  ICD_DGNS_CD3,  ICD_DGNS_CD4,
+            ICD_DGNS_CD5,  ICD_DGNS_CD6,  ICD_DGNS_CD7,  ICD_DGNS_CD8,
+            ICD_DGNS_CD9,  ICD_DGNS_CD10, ICD_DGNS_CD11, ICD_DGNS_CD12,
+            ICD_DGNS_CD13, ICD_DGNS_CD14, ICD_DGNS_CD15]) AS t(code)
+    WHERE LEFT(code, 3) IN ('J09','J10','J11','J12','J13','J14','J15','J16','J17','J18','J69')
+    UNION ALL
+    SELECT DSYSRTKY, thru_date,
+           LEFT(code, 3) AS pna_code
+    FROM _out,
+    UNNEST([PRNCPAL_DGNS_CD, ICD_DGNS_CD1, ICD_DGNS_CD2, ICD_DGNS_CD3,
+            ICD_DGNS_CD4,  ICD_DGNS_CD5, ICD_DGNS_CD6, ICD_DGNS_CD7,
+            ICD_DGNS_CD8,  ICD_DGNS_CD9, ICD_DGNS_CD10]) AS t(code)
+    WHERE LEFT(code, 3) IN ('J09','J10','J11','J12','J13','J14','J15','J16','J17','J18','J69')
+    UNION ALL
+    SELECT DSYSRTKY, thru_date,
+           LEFT(LINE_ICD_DGNS_CD, 3) AS pna_code
+    FROM _car
+    WHERE LEFT(LINE_ICD_DGNS_CD, 3) IN ('J09','J10','J11','J12','J13','J14','J15','J16','J17','J18','J69')
 ) GROUP BY DSYSRTKY;
 
 -- Dysphagia diagnosis (prefix R131, all sources)
@@ -313,6 +348,12 @@ SELECT
     DATEDIFF('day', c.index_dschg_date, ap.first_aspiration_date)   AS days_to_aspiration,
     (ap.first_aspiration_date IS NOT NULL)                           AS has_aspiration,
 
+    -- All pneumonia (secondary; breakdown by code)
+    pn.first_pneumonia_date,
+    DATEDIFF('day', c.index_dschg_date, pn.first_pneumonia_date)     AS days_to_pneumonia,
+    (pn.first_pneumonia_date IS NOT NULL)                             AS has_pneumonia,
+    pn.first_pneumonia_code,
+
     -- Dysphagia diagnosis
     dy.first_dysphagia_date,
     DATEDIFF('day', c.index_dschg_date, dy.first_dysphagia_date)    AS days_to_dysphagia,
@@ -345,6 +386,7 @@ LEFT JOIN _death         d   ON d.DSYSRTKY  = c.DSYSRTKY
 LEFT JOIN _readmit       ra  ON ra.DSYSRTKY = c.DSYSRTKY
 LEFT JOIN _recur_stroke  rs  ON rs.DSYSRTKY = c.DSYSRTKY
 LEFT JOIN _aspiration    ap  ON ap.DSYSRTKY = c.DSYSRTKY
+LEFT JOIN _pneumonia_all pn  ON pn.DSYSRTKY = c.DSYSRTKY
 LEFT JOIN _dysphagia     dy  ON dy.DSYSRTKY = c.DSYSRTKY
 LEFT JOIN _gtube         gt  ON gt.DSYSRTKY  = c.DSYSRTKY
 LEFT JOIN _pre_stroke_tube pt ON pt.DSYSRTKY = c.DSYSRTKY

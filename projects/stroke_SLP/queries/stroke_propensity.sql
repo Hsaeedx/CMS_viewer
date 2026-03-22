@@ -2,42 +2,33 @@
 -- Assembles one row per patient with SLP timing exposure, demographics,
 -- stroke characteristics, and comorbidity covariates for PSM.
 --
--- Cohort: ALL stroke patients (days_to_slp_outpt = NULL if no outpatient SLP within 90d)
+-- Cohort: Home-discharged stroke patients whose FIRST SLP contact post-discharge
+--   was in an outpatient/clinic setting (carrier or outpatient facility).
+--   Patients whose first SLP was through HHA are excluded (see stroke_slp.first_slp_is_clinic).
 --
--- SLP exposure (slp_timing_group):
---   '0-14d'  = first outpatient SLP contact within  0-14 days of discharge
---   '15-30d' = first outpatient SLP contact within 15-30 days of discharge
---   '31-90d' = first outpatient SLP contact within 31-90 days of discharge (reference)
---   'No SLP' = no outpatient SLP contact within 90 days of discharge
+-- SLP exposure (slp_timing_group): based on first CLINIC SLP contact
+--   '0-14d'  = first clinic SLP within  0-14 days of discharge
+--   '15-30d' = first clinic SLP within 15-30 days of discharge
+--   '31-90d' = first clinic SLP within 31-90 days of discharge (reference)
 --
 -- Two pairwise PSM comparisons (run by stroke_psm.py):
 --   Comparison A: 0-14d  vs 31-90d  → psm_matched_A / psm_match_id_A
 --   Comparison B: 15-30d vs 31-90d  → psm_matched_B / psm_match_id_B
 --
--- PSM covariates (do NOT include discharge disposition — it is a mediator):
+-- PSM covariates:
 --   age_at_adm, sex, race
 --   stroke_type (SAH / ICH / Ischemic / Unspecified)
 --   dysphagia_poa, aspiration_poa
 --   adm_source, index_los (severity proxies)
 --   adm_year (secular trends)
 --   van_walraven_score + individual comorbidity flags
---
--- Discharge group (dschg_group): used for EXACT MATCHING in PSM — treated patients
---   are matched only to controls with the same discharge disposition group.
---   Groups: Home | Home+HHA | SNF | IRF | LTACH | Other
---   Standard CMS discharge status codes:
---     Home:     01 (routine), 07 (AMA)
---     Home+HHA: 06 (home + organized home health)
---     SNF:      03, 64 (Medicaid nursing facility)
---     IRF:      62 (inpatient rehabilitation facility)
---     LTACH:    63 (long-term acute care hospital)
---     Other:    all remaining codes
+--   dschg_group (Home vs Home+HHA) — covariate, not exact match
 --
 -- Output table: stroke_propensity (PSM columns populated by stroke_psm.py)
 
 SET memory_limit='24GB';
 SET threads=12;
-SET temp_directory='F:\CMS\duckdb_temp';
+-- temp_directory set by run_pipeline.py via SET temp_directory
 
 DROP TABLE IF EXISTS stroke_propensity;
 
@@ -81,8 +72,10 @@ SELECT
     c.race,
     YEAR(c.index_adm_date) AS adm_year,
 
-    -- SLP timing (outpatient only — carrier + outpatient facility, NOT SNF/HHA)
+    -- SLP timing (clinic-only: carrier + outpatient facility)
+    -- Cohort restricted to patients whose first SLP was in a clinic setting.
     s.days_to_slp_outpt,
+    s.first_slp_is_clinic,
     COALESCE(s.slp_outpt_0_14d,  0) AS slp_outpt_0_14d,
     COALESCE(s.slp_outpt_15_30d, 0) AS slp_outpt_15_30d,
     COALESCE(s.slp_outpt_31_90d, 0) AS slp_outpt_31_90d,
@@ -135,8 +128,6 @@ SELECT
     e.hypertension,
     e.dyslipid,
     e.smoking,
-    e.dementia,
-
     -- PSM match flags — populated by stroke_psm.py
     -- Comparison A: 0-14d vs 31-90d
     FALSE     AS psm_matched_A,
@@ -149,7 +140,8 @@ SELECT
 
 FROM stroke_cohort c
 LEFT JOIN stroke_slp         s ON s.DSYSRTKY = c.DSYSRTKY
-LEFT JOIN stroke_comorbidity e ON e.DSYSRTKY = c.DSYSRTKY;
+LEFT JOIN stroke_comorbidity e ON e.DSYSRTKY = c.DSYSRTKY
+WHERE s.first_slp_is_clinic = TRUE;  -- include only patients whose first SLP was outpatient/clinic
 
 -- ── Summary: covariate balance check (pre-PSM) ────────────────────────────────
 SELECT

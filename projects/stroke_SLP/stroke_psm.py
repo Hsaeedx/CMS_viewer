@@ -129,24 +129,18 @@ def run_comparison(df_all, label, treat_grp, ctrl_grp):
           f"mean treated={ps[y.values==1].mean():.3f}  "
           f"mean control={ps[y.values==0].mean():.3f}")
 
-    # ── Greedy 1:1 nearest-neighbor matching (exact match on dschg_group) ────────
-    # Treated patients are matched only to controls with the same discharge
-    # disposition group (Home / Home+HHA / SNF / IRF / LTACH / Other).
-    # A separate KD-tree is built per group; patients whose discharge group has
-    # no eligible controls on the other side are left unmatched.
+    # ── Greedy 1:1 nearest-neighbor matching (caliper on logit PS) ───────────────
+    # All patients are home-discharged; no exact matching on discharge group needed.
     caliper = 0.2 * logit_ps.std()
-    print(f"\n  Matching {label} (caliper = {caliper:.4f}, exact on dschg_group) ...")
+    print(f"\n  Matching {label} (caliper = {caliper:.4f}) ...")
     t0 = time.time()
 
     treated = df[df['_treated'] == 1].reset_index(drop=True)
     control = df[df['_treated'] == 0].reset_index(drop=True)
 
-    # Build one KD-tree per discharge group using only control patients in that group
-    ctrl_groups = {}
-    for grp, sub in control.groupby('dschg_group'):
-        lps = sub['logit_ps'].values.reshape(-1, 1)
-        ids = sub['DSYSRTKY'].values
-        ctrl_groups[grp] = (cKDTree(lps), ids)
+    ctrl_lps = control['logit_ps'].values.reshape(-1, 1)
+    ctrl_ids = control['DSYSRTKY'].values
+    tree     = cKDTree(ctrl_lps)
 
     rng   = np.random.default_rng(RANDOM_SEED)
     order = rng.permutation(len(treated))
@@ -155,14 +149,9 @@ def run_comparison(df_all, label, treat_grp, ctrl_grp):
     used_ctrl     = set()
 
     for i in order:
-        t_lps  = treated.loc[i, 'logit_ps']
-        t_id   = treated.loc[i, 'DSYSRTKY']
-        t_grp  = treated.loc[i, 'dschg_group']
+        t_lps = treated.loc[i, 'logit_ps']
+        t_id  = treated.loc[i, 'DSYSRTKY']
 
-        if t_grp not in ctrl_groups:
-            continue  # no controls with this discharge disposition
-
-        tree, ctrl_ids = ctrl_groups[t_grp]
         k_max = min(50, len(ctrl_ids))
         dists, idxs = tree.query([[t_lps]], k=k_max)
         for dist, idx in zip(dists[0], idxs[0]):

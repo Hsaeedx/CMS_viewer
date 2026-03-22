@@ -16,7 +16,7 @@
 
 SET memory_limit='24GB';
 SET threads=12;
-SET temp_directory='F:\CMS\duckdb_temp';
+-- temp_directory set by run_pipeline.py via SET temp_directory
 
 -- ── Step 1: All acute stroke admissions ───────────────────────────────────────
 
@@ -321,7 +321,9 @@ JOIN _stroke_dedup     s ON  s.DSYSRTKY = sf.DSYSRTKY
                          AND s.adm_date = sf.first_adm_date
 LEFT JOIN _poa_flags   p ON  p.DSYSRTKY = sf.DSYSRTKY
 LEFT JOIN _proc_flags pr ON pr.DSYSRTKY = sf.DSYSRTKY
-LEFT JOIN _demo        d ON  d.DSYSRTKY = sf.DSYSRTKY;
+LEFT JOIN _demo        d ON  d.DSYSRTKY = sf.DSYSRTKY
+WHERE d.age_at_adm >= 65
+  AND s.dschg_status IN ('01', '06', '07');  -- home discharge only (routine, AMA, home+HHA)
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
 SELECT

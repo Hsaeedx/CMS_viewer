@@ -171,7 +171,7 @@
 <div class="header-block">
     <h1>Stroke + SLP Timing Study &mdash; Pipeline Specification</h1>
     <p>Early vs. Late Outpatient Speech-Language Pathology After Acute Stroke: Impact on Aspiration Pneumonia and Dysphagia Outcomes</p>
-    <p>Data source: CMS Medicare FFS Claims &bull; Database: <code>F:\CMS\cms_data.duckdb</code> &bull; Last updated: March 2026</p>
+    <p>Data source: CMS Medicare FFS Claims &bull; Database: <code>cms_data.duckdb</code> &bull; Last updated: March 2026</p>
 </div>
 
 <div class="toc">
@@ -203,17 +203,16 @@
 </div>
 
 <h1 id="s1">1. Research Question</h1>
-<p>Among Medicare patients hospitalized for acute stroke, does <strong>earlier initiation</strong> of outpatient
-speech-language pathology (SLP) services associate with lower rates of aspiration pneumonia, dysphagia
-diagnoses, and G-tube placement at 1 year post-discharge?</p>
+<p>Among Medicare patients hospitalized for acute stroke who were <strong>discharged home</strong> and received their
+<strong>first SLP contact in an outpatient/clinic setting</strong>, does earlier initiation of that clinic SLP associate
+with lower rates of aspiration pneumonia, dysphagia diagnoses, and G-tube placement at 1 year post-discharge?</p>
 
-<p><strong>Exposure:</strong> Timing of first outpatient SLP contact after discharge, categorized as:</p>
+<p><strong>Exposure:</strong> Timing of first outpatient (clinic-based) SLP contact after discharge, categorized as:</p>
 <table>
     <tr><th>Group</th><th>Days from discharge</th><th>Role</th></tr>
     <tr><td><code>0-14d</code></td><td>0 to 14 days</td><td>Treated (Comparison A)</td></tr>
     <tr><td><code>15-30d</code></td><td>15 to 30 days</td><td>Treated (Comparison B)</td></tr>
     <tr><td><code>31-90d</code></td><td>31 to 90 days</td><td>Reference (both comparisons)</td></tr>
-    <tr><td><code>No SLP</code></td><td>No outpatient SLP within 90 days</td><td>Descriptive only</td></tr>
 </table>
 
 <p><strong>Two pairwise PSM comparisons:</strong></p>
@@ -319,10 +318,23 @@ diagnoses, and G-tube placement at 1 year post-discharge?</p>
     These are not acute index strokes
 </div>
 
+<div class="step-box inclusion">
+    <span class="step-number">5</span>
+    <strong>Home discharge</strong><br>
+    Index admission discharge status code <code>01</code> (routine home), <code>06</code> (home with organized home health), or <code>07</code> (AMA). Patients discharged to SNF, IRF, LTACH, or other post-acute settings are excluded. Rationale: SLP timing is clearly defined and similarly accessible across this population; non-home settings introduce facility-level confounding in SLP access.
+</div>
+
+<div class="step-box inclusion">
+    <span class="step-number">6</span>
+    <strong>First SLP contact must be clinic-based (outpatient or carrier)</strong><br>
+    Patients whose first SLP contact within 90 days of discharge was through HHA (home health SLP) are excluded. This ensures both comparison groups are ambulatory enough to access outpatient clinic-based care, eliminating functional status confounding driven by HHA use asymmetry.
+    Applied via <code>first_slp_is_clinic = TRUE</code> in <code>stroke_slp</code>.
+</div>
+
 <h1 id="s4">4. SLP Exposure Definition</h1>
 
-<h2>4.1 What Counts as Outpatient SLP</h2>
-<p>SLP services are captured from <strong>carrier claims</strong> (outpatient professional) and <strong>outpatient facility claims</strong> only. SNF and HHA SLP are explicitly excluded from the timing exposure because they reflect different care settings and severity gradients.</p>
+<h2>4.1 What Counts as SLP for Timing</h2>
+<p>SLP timing is based on <strong>clinic-based SLP only</strong>: carrier claims (HCPCS codes) and outpatient facility revenue centers. HHA and SNF SLP are excluded from the timing definition. This ensures the timing exposure reflects ambulatory, voluntary outpatient engagement rather than facility-provided care driven by discharge setting.</p>
 
 <table>
     <tr><th>Source</th><th>Identifier</th><th>Values</th></tr>
@@ -332,25 +344,26 @@ diagnoses, and G-tube placement at 1 year post-discharge?</p>
     <tr><td>Outpatient facility (revenue center)</td><td>Speech-language pathology</td><td><code>0440&ndash;0449</code></td></tr>
 </table>
 
-<h2>4.2 Timing Calculation</h2>
-<p><code>days_to_slp_outpt</code> = date of <em>first</em> qualifying outpatient SLP claim &minus; index discharge date.<br>
-If no qualifying claim exists within 90 days of discharge: <code>days_to_slp_outpt = NULL</code>.</p>
+<div class="note">HHA and SNF revenue center 044x claims are <strong>not</strong> counted toward SLP timing. Patients whose first SLP (of any type) was HHA-based are excluded from the analytic cohort entirely (see inclusion criterion 6).</div>
 
-<pre><code>-- Computed in stroke_slp.sql
+<h2>4.2 Timing Calculation</h2>
+<p><code>days_to_slp_outpt</code> = date of <em>first</em> qualifying clinic SLP claim &minus; index discharge date.<br>
+If no qualifying clinic claim exists within 90 days: <code>days_to_slp_outpt = NULL</code> (excluded from analytic cohort).</p>
+
+<pre><code>-- Computed in stroke_slp.sql (_slp_outpt_only = carrier + outpatient only)
 days_to_slp_outpt = MIN(claim_date) - index_dschg_date
                     WHERE claim_date BETWEEN index_dschg_date
                                         AND index_dschg_date + INTERVAL 90 DAY
                       AND (hcpcs IN (slp_eval, slp_tx, slp_swallow)
                            OR revenue_center BETWEEN '0440' AND '0449')
-                      AND setting IN ('carrier', 'outpatient')  -- NOT snf, NOT hha</code></pre>
+                      AND claim_type IN ('carrier', 'outpatient')</code></pre>
 
 <h2>4.3 Timing Group Assignment</h2>
-<p>Assigned in <code>stroke_propensity.sql</code>. All four levels are present for the full cohort; PSM comparisons use only the relevant two levels each.</p>
+<p>Assigned in <code>stroke_propensity.sql</code>. All patients in the analytic cohort have a clinic SLP within 90 days by definition; three timing levels are used.</p>
 <pre><code>CASE
     WHEN days_to_slp_outpt BETWEEN  0 AND 14 THEN '0-14d'
     WHEN days_to_slp_outpt BETWEEN 15 AND 30 THEN '15-30d'
     WHEN days_to_slp_outpt BETWEEN 31 AND 90 THEN '31-90d'
-    ELSE 'No SLP'
 END AS slp_timing_group</code></pre>
 
 <h1 id="s5">5. Propensity Score Matching</h1>
@@ -372,7 +385,7 @@ END AS slp_timing_group</code></pre>
     <tr><td><code>drg_group</code></td><td>Categorical (bucketed DRG)</td><td>Clinical complexity proxy from index admission billing</td></tr>
 </table>
 
-<div class="note">Discharge disposition is intentionally <strong>excluded</strong> from the PS model — it is a post-treatment mediator (e.g., discharge to IRF may directly determine SLP timing) and its inclusion would introduce Berkson's bias. Instead, discharge group is used as an <strong>exact matching stratum</strong> (see 5.2 &amp; 5.3).</div>
+<div class="note">Discharge disposition (Home vs. Home+HHA) is included as a <strong>covariate</strong> in the PS model. Because all patients are home-discharged, it is not a strong confounder, but captures the marginal difference between planned-HHA and non-HHA home discharges. It is no longer used as an exact matching stratum.</div>
 
 <h2>5.2 PSM Algorithm</h2>
 <ul>
@@ -380,22 +393,11 @@ END AS slp_timing_group</code></pre>
     <li>Logit-transformed propensity score used for distance metric</li>
     <li>1:1 greedy nearest-neighbor matching <em>without replacement</em></li>
     <li>Caliper: <strong>0.2 &times; SD(logit PS)</strong> (Austin 2011 recommendation)</li>
-    <li><strong>Exact matching on discharge disposition group</strong> — each treated patient is matched only to a control discharged to the same setting (Home vs. Home, SNF vs. SNF, etc.). Treated patients with no eligible control in their discharge group are left unmatched.</li>
+    <li>Single KD-tree across all home-discharged controls (no exact matching stratum required)</li>
     <li>Random shuffle of treated patients before matching to remove order effects (seed = 42)</li>
     <li>Results written back to <code>stroke_propensity</code>: <code>psm_matched_A</code>, <code>psm_match_id_A</code>, <code>prop_score_A</code> (and _B for comparison B)</li>
 </ul>
-
-<h2>5.3 Discharge Disposition Groups</h2>
-<table>
-    <tr><th>Group</th><th>CMS STUS_CD values</th><th>Description</th></tr>
-    <tr><td><code>Home</code></td><td>01, 07</td><td>Routine home discharge / left AMA</td></tr>
-    <tr><td><code>Home+HHA</code></td><td>06</td><td>Home with organized home health services</td></tr>
-    <tr><td><code>SNF</code></td><td>03, 64</td><td>Skilled nursing facility / Medicaid nursing facility</td></tr>
-    <tr><td><code>IRF</code></td><td>62</td><td>Inpatient rehabilitation facility</td></tr>
-    <tr><td><code>LTACH</code></td><td>63</td><td>Long-term acute care hospital</td></tr>
-    <tr><td><code>Other</code></td><td>all remaining</td><td>Short-term transfer, ICF, swing bed, psychiatric, etc.</td></tr>
-</table>
-<div class="file-ref"><code>C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\stroke_psm.py</code></div>
+<div class="file-ref"><code>projects/stroke_SLP/stroke_psm.py</code></div>
 
 <h1 id="s6">6. Outcomes</h1>
 <p>All outcomes are measured in the <strong>365-day window</strong> following index discharge date.
@@ -408,9 +410,9 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
 <div class="outcome-grid">
     <div class="outcome-card primary">
         <h4>Aspiration Pneumonia <span class="badge">Primary</span></h4>
-        <p>Any inpatient or outpatient claim with a principal or secondary aspiration PNA diagnosis within 365 days of discharge.</p>
+        <p>Any inpatient or outpatient claim with a principal or secondary aspiration PNA diagnosis within 365 days of discharge. SNF and HHA claims are excluded from ascertainment.</p>
         <p class="codes">J690, J698</p>
-        <p><em>Source:</em> MEDPAR, carrier, outpatient</p>
+        <p><em>Source:</em> Inpatient, carrier, outpatient facility only</p>
     </div>
     <div class="outcome-card primary">
         <h4>Dysphagia Diagnosis <span class="badge">Primary</span></h4>
@@ -430,6 +432,12 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
 <p>Broader health outcomes and resource utilization to characterize the overall effect of SLP timing.</p>
 
 <div class="outcome-grid">
+    <div class="outcome-card secondary">
+        <h4>All Pneumonia <span class="badge sec">Secondary</span></h4>
+        <p>Any inpatient or outpatient claim with any pneumonia diagnosis (viral, bacterial, aspiration, unspecified) within 365 days. Reported with code breakdown by 3-character ICD-10 category. SNF and HHA claims excluded.</p>
+        <p class="codes">J09&ndash;J18, J69</p>
+        <p><em>Source:</em> Inpatient, carrier, outpatient facility only</p>
+    </div>
     <div class="outcome-card secondary">
         <h4>All-cause Mortality <span class="badge sec">Secondary</span></h4>
         <p>Date of death from MBSF beneficiary summary file. Also serves as a competing event for non-mortality outcomes in the time-varying Cox model.</p>
@@ -477,9 +485,9 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
     <li>Look-back window: 12 months prior to index admission using all claim types</li>
     <li>ICD-10-CM codes mapped per Quan et al. (2005) adaptation</li>
     <li>Output: <code>van_walraven_score</code> (scalar) + individual comorbidity flags (30+ columns)</li>
-    <li>Stroke-specific flags added separately: <code>prior_stroke, afib, prior_tia, hypertension, dyslipid, smoking, dementia</code></li>
+    <li>Stroke-specific flags added separately: <code>prior_stroke, afib, prior_tia, hypertension, dyslipid, smoking</code></li>
 </ul>
-<div class="file-ref"><code>C:\Users\hsaee\Desktop\CMS_viewer\projects\stroke_SLP\build_stroke_comorbidity.py</code></div>
+<div class="file-ref"><code>projects/stroke_SLP/queries/stroke_comorbidity.sql</code></div>
 
 <h1 id="s8">8. Statistical Analysis</h1>
 <h2>8.1 Primary Analysis</h2>
@@ -508,6 +516,7 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
     <li>By age: &lt;75, 75&ndash;84, 85+</li>
     <li>By dysphagia POA: present vs. absent</li>
     <li>By Elixhauser tertile: Low / Mid / High comorbidity burden</li>
+    <li>By discharge disposition: <code>Home</code> (codes 01/07) vs. <code>Home+HHA</code> (code 06) — both are within the analytic cohort; results reported separately as the planned-HHA subgroup is clinically distinct.</li>
 </ul>
 
 <h2>8.3 Covariate Balance Assessment</h2>
@@ -575,7 +584,7 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
     </tr>
     <tr>
         <td><code>stroke_slp_tables.xlsx</code></td>
-        <td><code>F:\CMS\projects\stroke_SLP\</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
         <td>Final output workbook (generated by make_stroke_table.py)</td>
     </tr>
 </table>
@@ -589,6 +598,16 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
     expected because there are unmeasured severity variables. Restricting to patients who <em>did</em> receive
     outpatient SLP (varying only in timing) dramatically reduces this confounding and addresses a more
     actionable clinical question: does it matter <em>how quickly</em> we refer?
+</div>
+
+<div class="step-box warning">
+    <strong>Why restrict to home-discharged patients with clinic-first SLP?</strong><br>
+    In the full cohort, home-discharged patients who received SLP at 0&ndash;14 days had dramatically
+    better outcomes than those at 31&ndash;90 days &mdash; but HHA use was severely asymmetric (14.6% vs.
+    47.5%). Patients in the late-SLP group were largely homebound and receiving SLP through HHA, while
+    early-SLP patients were ambulatory clinic-goers. This is functional status confounding, not a
+    treatment timing effect. By requiring that the first SLP contact be clinic-based (not HHA), both
+    groups are drawn from the same functionally ambulatory population, making the timing comparison valid.
 </div>
 
 <div class="step-box warning">

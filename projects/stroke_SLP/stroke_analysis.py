@@ -78,6 +78,8 @@ def load_cohort(con, match_col):
             o.n_readmissions_365d,
             o.days_to_recur_stroke,
             o.days_to_aspiration,
+            o.days_to_pneumonia,
+            o.first_pneumonia_code,
             o.days_to_dysphagia,
             o.days_to_gtube,
             o.days_to_snf,
@@ -112,6 +114,7 @@ def add_derived(df, treat_grp):
         df[f'readmit_{label}']   = (df['days_to_readmit'].notna()      & (df['days_to_readmit']      <= days)).astype(int)
         df[f'recur_{label}']     = (df['days_to_recur_stroke'].notna() & (df['days_to_recur_stroke'] <= days)).astype(int)
         df[f'asp_{label}']       = (df['days_to_aspiration'].notna()   & (df['days_to_aspiration']   <= days)).astype(int)
+        df[f'pna_{label}']       = (df['days_to_pneumonia'].notna()    & (df['days_to_pneumonia']    <= days)).astype(int)
         df[f'dysphagia_{label}'] = (df['days_to_dysphagia'].notna()    & (df['days_to_dysphagia']    <= days)).astype(int)
         df[f'gtube_{label}']     = (df['days_to_gtube'].notna()        & (df['days_to_gtube']        <= days)).astype(int)
 
@@ -209,6 +212,7 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
         ('Mortality',         'died_{lbl}',       'days_to_death',        TIMEPOINTS),
         ('Readmission',       'readmit_{lbl}',    'days_to_readmit',      TIMEPOINTS),
         ('Aspiration PNA',    'asp_{lbl}',        'days_to_aspiration',   TIMEPOINTS),
+        ('All Pneumonia',     'pna_{lbl}',        'days_to_pneumonia',    TIMEPOINTS),
         ('Dysphagia Dx',      'dysphagia_{lbl}',  'days_to_dysphagia',    TIMEPOINTS),
         ('G-tube',            'gtube_{lbl}',      'days_to_gtube',        TIMEPOINTS),
         ('SNF 30d',           'snf_30d',          'days_to_snf',          [None]),
@@ -262,14 +266,17 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
     print(f"  Person-time split at days_to_slp_outpt; trt=0 pre-SLP, trt=1/0 post-SLP")
     print(f"{'='*80}")
 
+    # trach_placed and aspiration_poa excluded: near-zero variance in home-discharged cohort
+    # causing NaN/Inf in Hessian and singular matrix errors
     TV_COVARIATES = ['age_at_adm', 'van_walraven_score', 'dysphagia_poa',
-                     'aspiration_poa', 'mech_vent', 'peg_placed', 'trach_placed', 'index_los']
+                     'mech_vent', 'peg_placed', 'index_los']
 
     # (label, primary_event_days_col, competing_event_days_col or None)
     # Non-mortality outcomes treat death as a competing event (censored).
     cox_tv_outcomes = [
         ('All-cause mortality',  'days_to_death',        None),
         ('Aspiration PNA',       'days_to_aspiration',   'days_to_death'),
+        ('All Pneumonia',        'days_to_pneumonia',    'days_to_death'),
         ('Dysphagia Dx',         'days_to_dysphagia',    'days_to_death'),
     ]
 
@@ -347,6 +354,7 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
     km_outcomes = [
         ('All-cause mortality',  'died_365d',       'censor_days',         True),
         ('Aspiration PNA',       'asp_365d',         'days_to_aspiration',  False),
+        ('All Pneumonia',        'pna_365d',         'days_to_pneumonia',   False),
         ('Dysphagia Dx',         'dysphagia_365d',   'days_to_dysphagia',   False),
         ('G-tube',               'gtube_365d',       'days_to_gtube',       False),
     ]
@@ -410,6 +418,49 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
         _, p = mannwhitneyu(s, n, alternative='two-sided')
         print(f"  {stype:<14}  treat: ${s.mean():,.0f}  ctrl: ${n.mean():,.0f}  "
               f"p={p:.4f}")
+
+    # ── Pneumonia code breakdown ───────────────────────────────────────────────
+    print(f"\n{'='*80}")
+    print(f"  Pneumonia Code Breakdown (365d matched cohort) — Comparison {comp_label}")
+    print(f"  Among patients with any pneumonia event; first qualifying ICD-10 3-char code")
+    print(f"{'='*80}")
+
+    CODE_LABELS = {
+        'J09': 'J09  Influenza (novel A)',
+        'J10': 'J10  Influenza (other virus)',
+        'J11': 'J11  Influenza (unspecified)',
+        'J12': 'J12  Viral pneumonia NEC',
+        'J13': 'J13  Pneumococcal',
+        'J14': 'J14  H. influenzae',
+        'J15': 'J15  Bacterial NEC',
+        'J16': 'J16  Other infectious organism',
+        'J17': 'J17  In diseases elsewhere',
+        'J18': 'J18  Unspecified pneumonia',
+        'J69': 'J69  Aspiration pneumonitis',
+    }
+
+    pna_treat = df[(df['treated'] == 1) & df['days_to_pneumonia'].notna() & (df['days_to_pneumonia'] <= 365)]
+    pna_ctrl  = df[(df['treated'] == 0) & df['days_to_pneumonia'].notna() & (df['days_to_pneumonia'] <= 365)]
+
+    print(f"  {'Code':<32}  {treat_grp:>10}  {'%':>6}  {ctrl_grp:>10}  {'%':>6}")
+    print(f"  {'-'*70}")
+
+    all_codes = sorted(set(pna_treat['first_pneumonia_code'].dropna()) |
+                       set(pna_ctrl['first_pneumonia_code'].dropna()))
+
+    n_treat_total = len(pna_treat)
+    n_ctrl_total  = len(pna_ctrl)
+
+    for code in all_codes:
+        label = CODE_LABELS.get(code, f"{code}  (other)")
+        nt = (pna_treat['first_pneumonia_code'] == code).sum()
+        nc = (pna_ctrl['first_pneumonia_code']  == code).sum()
+        pt = 100 * nt / n_treat_total if n_treat_total else 0
+        pc = 100 * nc / n_ctrl_total  if n_ctrl_total  else 0
+        print(f"  {label:<32}  {nt:>10,}  {pt:>5.1f}%  {nc:>10,}  {pc:>5.1f}%")
+
+    print(f"  {'-'*70}")
+    print(f"  {'TOTAL (any pneumonia)':<32}  {n_treat_total:>10,}  {'':>6}  {n_ctrl_total:>10,}  {'':>6}")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

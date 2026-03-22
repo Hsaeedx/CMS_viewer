@@ -11,7 +11,7 @@
 
 SET memory_limit='24GB';
 SET threads=12;
-SET temp_directory='F:\CMS\duckdb_temp';
+-- temp_directory set by run_pipeline.py via SET temp_directory
 
 -- Step 1: Extract inpatient dx codes for cohort patients in the 12-month lookback
 

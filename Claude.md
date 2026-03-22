@@ -3,7 +3,7 @@ This workspace is meant for research projects related to the CMS (Medicare claim
     - Outcomes in stroke patients who use SLPs vs not
     - IO Hospitalizations and Hospice in mucosal HNC
 
-Only use powershell for this project. If you use bash, it must be simply to access powershell.
+If on windows, only use powershell for this project. If you use bash, it must be simply to access powershell.
 
 Read the .env file to understand file locations. The database is on an external drive.
 
