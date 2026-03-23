@@ -376,7 +376,7 @@
         <td>Inpatient (inp_claimsk_all)</td>
         <td><span class="badge badge-inpatient">INPATIENT</span></td>
         <td>DSYSRTKY, ADMSN_DT, DSCHRGDT, STUS_CD, PRNCPAL_DGNS_CD, ICD_DGNS_CD1–ICD_DGNS_CD25, ICD_PRCDR_CD1–ICD_PRCDR_CD25, PRCDR_DT1–PRCDR_DT25</td>
-        <td>Surgical procedures, in-hospital death</td>
+        <td>Surgical procedures, in-hospital death, inpatient admissions within 30 days of death</td>
     </tr>
     <tr>
         <td>Hospice (hosp_claimsk_all)</td>
@@ -1365,6 +1365,7 @@ comorbidity_end   = DEATH_DT - INTERVAL '2 months'
     <tr><td><code>fig1_hospice_by_year.png</code></td><td>Figure 1: Hospice enrollment rate by year with linear trend</td><td>make_figures.py</td></tr>
     <tr><td><code>fig2_days_io_to_death.png</code></td><td>Figure 2: Timing from last IO dose to death (histogram + categories)</td><td>make_figures.py</td></tr>
     <tr><td><code>fig3_hospice_los.png</code></td><td>Figure 3: Hospice LOS distribution among enrolled patients</td><td>make_figures.py</td></tr>
+    <tr><td><code>top10_admissions.xlsx</code></td><td>Top 10 principal diagnoses for inpatient admissions within 30 days of death (N, % of all qualifying admissions)</td><td>make_top10_admissions.py</td></tr>
 </table>
 
 <h3>Table 1: Patient Characteristics</h3>

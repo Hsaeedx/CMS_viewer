@@ -46,6 +46,7 @@ DROP TABLE IF EXISTS io_inp_claims;
 CREATE TABLE io_inp_claims AS
 SELECT
     i.DSYSRTKY,
+    i.ADMSN_DT,
     i.THRU_DT,
     i.STUS_CD,
     i.DSCHRGDT,

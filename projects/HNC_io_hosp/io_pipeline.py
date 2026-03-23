@@ -197,6 +197,7 @@ def run_pipeline():
         'make_secular_trends.py',
         'make_figures.py',
         'make_flowchart.py',
+        'make_top10_admissions.py',
     ]
 
     print(f"\n{'='*70}")
