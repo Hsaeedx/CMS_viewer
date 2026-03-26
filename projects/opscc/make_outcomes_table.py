@@ -1,8 +1,10 @@
 """
 make_outcomes_table.py
-Exports the OR results (Dysphagia / G-tube / Tracheostomy) to a formatted
-Excel workbook:  F:\CMS\outcomes_tables.xlsx
-One sheet per outcome; rows = subgroups; columns = time points.
+Exports OR results to a formatted Excel workbook: F:\\CMS\\outcomes_tables.xlsx
+Two comparisons × three outcomes → six sheets:
+  "A - Dysphagia", "A - G-tube", "A - Tracheostomy"
+  "B - Dysphagia", "B - G-tube", "B - Tracheostomy"
+Rows = subgroups; columns = time points.
 """
 
 import sys
@@ -19,12 +21,13 @@ from openpyxl.utils import get_column_letter
 DB_PATH  = r"F:\CMS\cms_data.duckdb"
 OUT_PATH = r"F:\CMS\outcomes_tables.xlsx"
 
-# ── 1. Load data (identical query to outcomes_analysis.py) ───────────────────
-con = duckdb.connect(DB_PATH, read_only=True)
-con.execute("SET memory_limit='24GB'; SET threads=12; SET temp_directory='F:\\CMS\\duckdb_temp';")
+COMPARISONS = [
+    ('A', 'psm_matched_A', 'TORS alone', 'RT alone'),
+    ('B', 'psm_matched_B', 'TORS + RT',  'CT/CRT'),
+]
 
-df = con.execute("""
-    WITH c77 AS (
+C77_CTE = """
+    c77 AS (
         SELECT DISTINCT o.DSYSRTKY
         FROM opscc_cohort o
         JOIN inp_claimsk_all i ON i.DSYSRTKY = o.DSYSRTKY,
@@ -58,101 +61,16 @@ df = con.execute("""
           AND TRY_STRPTIME(cl.THRU_DT, '%Y%m%d')
                   BETWEEN o.first_hnc_date - INTERVAL 90 DAY
                       AND o.first_hnc_date + INTERVAL 90 DAY
-    ),
-    matched AS (
-        SELECT p.DSYSRTKY, p.tx_group, p.first_tx_date,
-               p.age_at_dx, p.van_walraven_score
-        FROM opscc_propensity p
-        WHERE p.psm_matched = TRUE
-          AND p.tx_group IN ('TORS only', 'CT/CRT only')
-          AND p.DSYSRTKY NOT IN (SELECT DSYSRTKY FROM c77)
-    ),
-    mbsf_sum AS (
-        SELECT
-            sub.DSYSRTKY,
-            COALESCE(
-                MIN(CASE WHEN NOT (sub.buyin = '3' AND sub.hmoind IN ('0','4'))
-                         THEN sub.mo_start END) - INTERVAL 1 DAY,
-                MAX(sub.mo_end)
-            ) AS last_ffs_date,
-            MAX(CASE WHEN sub.DEATH_DT IS NOT NULL AND sub.DEATH_DT != ''
-                     THEN TRY_STRPTIME(sub.DEATH_DT, '%Y%m%d') END) AS death_date
-        FROM (
-            SELECT
-                m.DSYSRTKY, m.DEATH_DT,
-                make_date(CAST(m.RFRNC_YR AS INTEGER), t.mo, 1)        AS mo_start,
-                make_date(CAST(m.RFRNC_YR AS INTEGER), t.mo, 1)
-                    + INTERVAL 1 MONTH - INTERVAL 1 DAY               AS mo_end,
-                CASE t.mo
-                    WHEN 1  THEN m.BUYIN1  WHEN 2  THEN m.BUYIN2  WHEN 3  THEN m.BUYIN3
-                    WHEN 4  THEN m.BUYIN4  WHEN 5  THEN m.BUYIN5  WHEN 6  THEN m.BUYIN6
-                    WHEN 7  THEN m.BUYIN7  WHEN 8  THEN m.BUYIN8  WHEN 9  THEN m.BUYIN9
-                    WHEN 10 THEN m.BUYIN10 WHEN 11 THEN m.BUYIN11 WHEN 12 THEN m.BUYIN12
-                END AS buyin,
-                CASE t.mo
-                    WHEN 1  THEN m.HMOIND1  WHEN 2  THEN m.HMOIND2  WHEN 3  THEN m.HMOIND3
-                    WHEN 4  THEN m.HMOIND4  WHEN 5  THEN m.HMOIND5  WHEN 6  THEN m.HMOIND6
-                    WHEN 7  THEN m.HMOIND7  WHEN 8  THEN m.HMOIND8  WHEN 9  THEN m.HMOIND9
-                    WHEN 10 THEN m.HMOIND10 WHEN 11 THEN m.HMOIND11 WHEN 12 THEN m.HMOIND12
-                END AS hmoind
-            FROM mbsf_all m
-            JOIN matched p ON m.DSYSRTKY = p.DSYSRTKY,
-            UNNEST([1,2,3,4,5,6,7,8,9,10,11,12]) AS t(mo)
-            WHERE make_date(CAST(m.RFRNC_YR AS INTEGER), t.mo, 1)
-                      >= date_trunc('month', p.first_tx_date) + INTERVAL 1 MONTH
-        ) sub
-        GROUP BY sub.DSYSRTKY
     )
-    SELECT
-        p.DSYSRTKY, p.tx_group, p.first_tx_date,
-        p.age_at_dx, p.van_walraven_score,
-        s.death_date,
-        s.last_ffs_date,
-        o.has_dysphagia,
-        DATEDIFF('day', p.first_tx_date, o.first_dysphagia_date) AS days_dys,
-        o.has_gtube,
-        DATEDIFF('day', p.first_tx_date, o.first_gtube_date)     AS days_gt,
-        o.has_tracheostomy,
-        DATEDIFF('day', p.first_tx_date, o.first_trach_date)     AS days_tr
-    FROM matched p
-    JOIN mbsf_sum     s ON s.DSYSRTKY = p.DSYSRTKY
-    JOIN opscc_outcomes o ON o.DSYSRTKY = p.DSYSRTKY
-""").df()
-con.close()
+"""
 
-# ── 2. Derived fields ─────────────────────────────────────────────────────────
-df['death_date']     = pd.to_datetime(df['death_date'])
-df['last_ffs_date']  = pd.to_datetime(df['last_ffs_date'])
-df['first_tx_date']  = pd.to_datetime(df['first_tx_date'])
-df['censor_date']    = df['last_ffs_date']
-mask = df['death_date'].notna() & (df['death_date'] < df['last_ffs_date'])
-df.loc[mask, 'censor_date'] = df.loc[mask, 'death_date']
-df['follow_up_days'] = (df['censor_date'] - df['first_tx_date']).dt.days
-df['tors']           = (df['tx_group'] == 'TORS only').astype(int)
-
-q1 = df['van_walraven_score'].quantile(1/3)
-q2 = df['van_walraven_score'].quantile(2/3)
-df['elix_grp'] = pd.cut(df['van_walraven_score'],
-                         bins=[-np.inf, q1, q2, np.inf],
-                         labels=['Low', 'Mid', 'High'])
-
-# ── 3. Analysis definitions ───────────────────────────────────────────────────
-strata = [
-    ('All matched',                        df),
-    ('Age < 75',                           df[df['age_at_dx'] < 75]),
-    ('Age \u2265 75',                      df[df['age_at_dx'] >= 75]),
-    (f'Low comorbidity (VW \u2264 {q1:.0f})',     df[df['elix_grp'] == 'Low']),
-    (f'Mid comorbidity (VW {q1:.0f}\u2013{q2:.0f})', df[df['elix_grp'] == 'Mid']),
-    (f'High comorbidity (VW > {q2:.0f})',  df[df['elix_grp'] == 'High']),
-]
-
-outcomes = [
+OUTCOMES = [
     ('Dysphagia',    'has_dysphagia',    'days_dys'),
     ('G-tube',       'has_gtube',        'days_gt'),
     ('Tracheostomy', 'has_tracheostomy', 'days_tr'),
 ]
 
-timepoints = [
+TIMEPOINTS = [
     ('6-month',   182),
     ('1-year',    365),
     ('3-year',   1095),
@@ -160,7 +78,7 @@ timepoints = [
     ('Anytime',   None),
 ]
 
-# ── 4. OR function ────────────────────────────────────────────────────────────
+
 def compute_or(sub, has_col, days_col, cutoff):
     valid = sub[sub[has_col].notna()].copy()
     if cutoff is None:
@@ -192,7 +110,8 @@ def compute_or(sub, has_col, days_col, cutoff):
     _, p, _, _ = chi2_contingency([[a, b], [c, d]], correction=False)
     return nt, et, pt, nc, ec, pc, or_v, lo, hi, p
 
-# ── 5. Style helpers ──────────────────────────────────────────────────────────
+
+# ── Style helpers ──────────────────────────────────────────────────────────────
 def border(style='thin'):
     s = Side(style=style)
     return Border(left=s, right=s, top=s, bottom=s)
@@ -206,128 +125,203 @@ def font(bold=False, size=10, color='000000', name='Calibri'):
 def align(h='center', v='center', wrap=True):
     return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
 
-HDR_FILL   = fill('1F4E79')   # dark blue  — time-point group header
-SUB_FILL   = fill('2E75B6')   # mid blue   — column sub-header
-ALT_FILL   = fill('F2F2F2')   # light gray — alternating data rows
-SIG_FILL   = fill('E2EFDA')   # green      — p < 0.05
-STRM_FILL  = fill('DEEAF1')   # pale blue  — "All matched" row
+HDR_FILL  = fill('BA0C2F')   # OSU Scarlet
+SUB_FILL  = fill('70071C')   # Scarlet Dark
+ALT_FILL  = fill('F2F2F2')
+SIG_FILL  = fill('E2EFDA')
+STRM_FILL = fill('F5D0D7')
 
-# ── 6. Build workbook ─────────────────────────────────────────────────────────
+# ── Load data for each comparison and build workbook ──────────────────────────
+con = duckdb.connect(DB_PATH, read_only=True)
+con.execute("SET memory_limit='24GB'; SET threads=12; SET temp_directory='F:\\CMS\\duckdb_temp';")
+
 wb = openpyxl.Workbook()
 wb.remove(wb.active)
 
-N_TP   = len(timepoints)
-M      = 4           # metrics per time point: TORS n/N, CRT n/N, OR (95%CI), p
-SCOL   = 1           # stratum column index
-DCOL   = 2           # first data column
+N_TP = len(TIMEPOINTS)
+M    = 4   # metrics per time point: TORS n/N, ctrl n/N, OR (95%CI), p
+SCOL = 1
+DCOL = 2
 
-for out_lbl, has_col, days_col in outcomes:
-    ws = wb.create_sheet(title=out_lbl)
-    total_cols = SCOL + N_TP * M   # 1 + 20 = 21
+for comp, match_col, tors_label, ctrl_label in COMPARISONS:
 
-    # ── Row 1: Title ─────────────────────────────────────────────────────────
-    ws.merge_cells(start_row=1, start_column=1,
-                   end_row=1,   end_column=total_cols)
-    c = ws.cell(row=1, column=1,
-                value=f"{out_lbl}  \u2014  Odds Ratios, TORS vs CT/CRT"
-                      f"  (PSM-matched, C77 excluded)  \u2014  OR < 1 favors TORS")
-    c.font      = font(bold=True, size=12)
-    c.alignment = align(h='left', wrap=False)
-    ws.row_dimensions[1].height = 22
+    print(f"Loading data for Comparison {comp}: {tors_label} vs {ctrl_label}...")
 
-    # ── Row 2: Time-point group headers ──────────────────────────────────────
-    # Stratum header (spans rows 2-3)
-    ws.merge_cells(start_row=2, start_column=1, end_row=3, end_column=1)
-    c = ws.cell(row=2, column=1, value='Subgroup')
-    c.font = font(bold=True, size=11, color='FFFFFF')
-    c.fill = HDR_FILL; c.alignment = align(); c.border = border()
+    df = con.execute(f"""
+        WITH {C77_CTE},
+        matched AS (
+            SELECT p.DSYSRTKY, p.tx_group, p.first_tx_date,
+                   p.age_at_dx, p.van_walraven_score
+            FROM opscc_propensity p
+            WHERE p.{match_col} = TRUE
+              AND p.tx_group IN ('{tors_label}', '{ctrl_label}')
+              AND p.DSYSRTKY NOT IN (SELECT DSYSRTKY FROM c77)
+        ),
+        mbsf_sum AS (
+            SELECT
+                sub.DSYSRTKY,
+                COALESCE(
+                    MIN(CASE WHEN NOT (sub.buyin = '3' AND sub.hmoind IN ('0','4'))
+                             THEN sub.mo_start END) - INTERVAL 1 DAY,
+                    MAX(sub.mo_end)
+                ) AS last_ffs_date,
+                MAX(CASE WHEN sub.DEATH_DT IS NOT NULL AND sub.DEATH_DT != ''
+                         THEN TRY_STRPTIME(sub.DEATH_DT, '%Y%m%d') END) AS death_date
+            FROM (
+                SELECT
+                    m.DSYSRTKY, m.DEATH_DT,
+                    make_date(CAST(m.RFRNC_YR AS INTEGER), t.mo, 1)      AS mo_start,
+                    make_date(CAST(m.RFRNC_YR AS INTEGER), t.mo, 1)
+                        + INTERVAL 1 MONTH - INTERVAL 1 DAY              AS mo_end,
+                    CASE t.mo
+                        WHEN 1  THEN m.BUYIN1  WHEN 2  THEN m.BUYIN2  WHEN 3  THEN m.BUYIN3
+                        WHEN 4  THEN m.BUYIN4  WHEN 5  THEN m.BUYIN5  WHEN 6  THEN m.BUYIN6
+                        WHEN 7  THEN m.BUYIN7  WHEN 8  THEN m.BUYIN8  WHEN 9  THEN m.BUYIN9
+                        WHEN 10 THEN m.BUYIN10 WHEN 11 THEN m.BUYIN11 WHEN 12 THEN m.BUYIN12
+                    END AS buyin,
+                    CASE t.mo
+                        WHEN 1  THEN m.HMOIND1  WHEN 2  THEN m.HMOIND2  WHEN 3  THEN m.HMOIND3
+                        WHEN 4  THEN m.HMOIND4  WHEN 5  THEN m.HMOIND5  WHEN 6  THEN m.HMOIND6
+                        WHEN 7  THEN m.HMOIND7  WHEN 8  THEN m.HMOIND8  WHEN 9  THEN m.HMOIND9
+                        WHEN 10 THEN m.HMOIND10 WHEN 11 THEN m.HMOIND11 WHEN 12 THEN m.HMOIND12
+                    END AS hmoind
+                FROM mbsf_all m
+                JOIN matched p ON m.DSYSRTKY = p.DSYSRTKY,
+                UNNEST([1,2,3,4,5,6,7,8,9,10,11,12]) AS t(mo)
+                WHERE make_date(CAST(m.RFRNC_YR AS INTEGER), t.mo, 1)
+                          >= date_trunc('month', p.first_tx_date) + INTERVAL 1 MONTH
+            ) sub
+            GROUP BY sub.DSYSRTKY
+        )
+        SELECT
+            p.DSYSRTKY, p.tx_group, p.first_tx_date,
+            p.age_at_dx, p.van_walraven_score,
+            s.death_date, s.last_ffs_date,
+            o.has_dysphagia,
+            DATEDIFF('day', p.first_tx_date, o.first_dysphagia_date) AS days_dys,
+            o.has_gtube,
+            DATEDIFF('day', p.first_tx_date, o.first_gtube_date)     AS days_gt,
+            o.has_tracheostomy,
+            DATEDIFF('day', p.first_tx_date, o.first_trach_date)     AS days_tr
+        FROM matched p
+        JOIN mbsf_sum       s ON s.DSYSRTKY = p.DSYSRTKY
+        JOIN opscc_outcomes o ON o.DSYSRTKY = p.DSYSRTKY
+    """).df()
 
-    for tp_idx, (tp_lbl, _) in enumerate(timepoints):
-        sc = DCOL + tp_idx * M
-        ws.merge_cells(start_row=2, start_column=sc,
-                       end_row=2,   end_column=sc + M - 1)
-        c = ws.cell(row=2, column=sc, value=tp_lbl)
+    df['death_date']     = pd.to_datetime(df['death_date'])
+    df['last_ffs_date']  = pd.to_datetime(df['last_ffs_date'])
+    df['first_tx_date']  = pd.to_datetime(df['first_tx_date'])
+    df['censor_date']    = df['last_ffs_date']
+    mask = df['death_date'].notna() & (df['death_date'] < df['last_ffs_date'])
+    df.loc[mask, 'censor_date'] = df.loc[mask, 'death_date']
+    df['follow_up_days'] = (df['censor_date'] - df['first_tx_date']).dt.days
+    df['tors']           = (df['tx_group'] == tors_label).astype(int)
+
+    q1 = df['van_walraven_score'].quantile(1/3)
+    q2 = df['van_walraven_score'].quantile(2/3)
+    df['elix_grp'] = pd.cut(df['van_walraven_score'],
+                             bins=[-np.inf, q1, q2, np.inf],
+                             labels=['Low', 'Mid', 'High'])
+
+    strata = [
+        ('All matched',                       df),
+        ('Age < 75',                          df[df['age_at_dx'] < 75]),
+        (f'Age \u2265 75',                    df[df['age_at_dx'] >= 75]),
+        (f'Low comorbidity (VW\u2264{q1:.0f})',     df[df['elix_grp'] == 'Low']),
+        (f'Mid comorbidity (VW {q1:.0f}\u2013{q2:.0f})', df[df['elix_grp'] == 'Mid']),
+        (f'High comorbidity (VW>{q2:.0f})',   df[df['elix_grp'] == 'High']),
+    ]
+
+    for out_lbl, has_col, days_col in OUTCOMES:
+        sheet_name = f"{comp} - {out_lbl}"
+        ws = wb.create_sheet(title=sheet_name)
+        total_cols = SCOL + N_TP * M
+
+        # Row 1: title
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
+        c = ws.cell(row=1, column=1,
+                    value=f"Comparison {comp}: {tors_label} vs {ctrl_label}  \u2014  "
+                          f"{out_lbl}  \u2014  OR < 1 favors {tors_label}  (PSM, C77 excl.)")
+        c.font      = font(bold=True, size=12)
+        c.alignment = align(h='left', wrap=False)
+        ws.row_dimensions[1].height = 22
+
+        # Row 2-3: headers
+        ws.merge_cells(start_row=2, start_column=1, end_row=3, end_column=1)
+        c = ws.cell(row=2, column=1, value='Subgroup')
         c.font = font(bold=True, size=11, color='FFFFFF')
         c.fill = HDR_FILL; c.alignment = align(); c.border = border()
-    ws.row_dimensions[2].height = 18
 
-    # ── Row 3: Column sub-headers ─────────────────────────────────────────────
-    sub_labels = ['TORS\nn/N (%)', 'CRT\nn/N (%)', 'OR (95% CI)', 'p-value']
-    for tp_idx in range(N_TP):
-        sc = DCOL + tp_idx * M
-        for j, lbl in enumerate(sub_labels):
-            c = ws.cell(row=3, column=sc + j, value=lbl)
-            c.font      = font(bold=True, size=9)
-            c.fill      = SUB_FILL
-            c.alignment = align()
-            c.border    = border()
-    ws.row_dimensions[3].height = 30
-
-    # ── Rows 4+: Data ─────────────────────────────────────────────────────────
-    for row_i, (s_lbl, sub) in enumerate(strata):
-        data_row = 4 + row_i
-        row_fill = STRM_FILL if row_i == 0 else (ALT_FILL if row_i % 2 == 1 else fill('FFFFFF'))
-
-        # Stratum label
-        c = ws.cell(row=data_row, column=1, value=s_lbl)
-        c.font      = font(bold=(row_i == 0), size=10)
-        c.fill      = row_fill
-        c.alignment = align(h='left', wrap=False)
-        c.border    = border()
-
-        for tp_idx, (_, cutoff) in enumerate(timepoints):
+        for tp_idx, (tp_lbl, _) in enumerate(TIMEPOINTS):
             sc = DCOL + tp_idx * M
-            nt, et, pt, nc, ec, pc, or_v, lo, hi, p = \
-                compute_or(sub, has_col, days_col, cutoff)
+            ws.merge_cells(start_row=2, start_column=sc, end_row=2, end_column=sc + M - 1)
+            c = ws.cell(row=2, column=sc, value=tp_lbl)
+            c.font = font(bold=True, size=11, color='FFFFFF')
+            c.fill = HDR_FILL; c.alignment = align(); c.border = border()
+        ws.row_dimensions[2].height = 18
 
-            sig  = (not np.isnan(or_v)) and (p < 0.05)
-            cfil = SIG_FILL if sig else row_fill
+        tors_abbr = tors_label.replace(' ','')[:8]
+        ctrl_abbr = ctrl_label.replace(' ','')[:8]
+        sub_labels = [f'{tors_abbr}\nn/N (%)', f'{ctrl_abbr}\nn/N (%)', 'OR (95% CI)', 'p-value']
+        for tp_idx in range(N_TP):
+            sc = DCOL + tp_idx * M
+            for j, lbl in enumerate(sub_labels):
+                c = ws.cell(row=3, column=sc + j, value=lbl)
+                c.font = font(bold=True, size=9); c.fill = SUB_FILL
+                c.alignment = align(); c.border = border()
+        ws.row_dimensions[3].height = 30
 
-            # TORS n/N (%)
-            c = ws.cell(row=data_row, column=sc,
-                        value=f"{et}/{nt}\n({pt}%)")
-            c.font = font(size=10); c.fill = cfil
-            c.alignment = align(); c.border = border()
+        # Data rows
+        for row_i, (s_lbl, sub) in enumerate(strata):
+            data_row = 4 + row_i
+            row_fill = STRM_FILL if row_i == 0 else (ALT_FILL if row_i % 2 == 1 else fill('FFFFFF'))
 
-            # CRT n/N (%)
-            c = ws.cell(row=data_row, column=sc + 1,
-                        value=f"{ec}/{nc}\n({pc}%)")
-            c.font = font(size=10); c.fill = cfil
-            c.alignment = align(); c.border = border()
+            c = ws.cell(row=data_row, column=1, value=s_lbl)
+            c.font      = font(bold=(row_i == 0), size=10)
+            c.fill      = row_fill
+            c.alignment = align(h='left', wrap=False)
+            c.border    = border()
 
-            # OR (95% CI)
-            if np.isnan(or_v):
-                or_str = 'N/A'
-            else:
-                or_str = f"{or_v:.2f}\n({lo:.2f}\u2013{hi:.2f})"
-            c = ws.cell(row=data_row, column=sc + 2, value=or_str)
-            c.font = font(bold=sig, size=10); c.fill = cfil
-            c.alignment = align(); c.border = border()
+            for tp_idx, (_, cutoff) in enumerate(TIMEPOINTS):
+                sc = DCOL + tp_idx * M
+                nt, et, pt, nc, ec, pc, or_v, lo, hi, p = \
+                    compute_or(sub, has_col, days_col, cutoff)
 
-            # p-value
-            if np.isnan(or_v):
-                p_str, p_col = '\u2014', '000000'
-            elif p < 0.001:
-                p_str, p_col = '<0.001', ('CC0000' if sig else '000000')
-            else:
-                p_str, p_col = f"{p:.3f}", ('CC0000' if sig else '000000')
-            c = ws.cell(row=data_row, column=sc + 3, value=p_str)
-            c.font = font(bold=sig, size=10, color=p_col)
-            c.fill = cfil; c.alignment = align(); c.border = border()
+                sig  = (not np.isnan(or_v)) and (p < 0.05)
+                cfil = SIG_FILL if sig else row_fill
 
-        ws.row_dimensions[data_row].height = 32
+                c = ws.cell(row=data_row, column=sc,     value=f"{et}/{nt}\n({pt}%)")
+                c.font = font(size=10); c.fill = cfil; c.alignment = align(); c.border = border()
 
-    # ── Column widths ──────────────────────────────────────────────────────────
-    ws.column_dimensions['A'].width = 30
-    for tp_idx in range(N_TP):
-        sc = DCOL + tp_idx * M
-        ws.column_dimensions[get_column_letter(sc)].width     = 11  # TORS n/N
-        ws.column_dimensions[get_column_letter(sc + 1)].width = 11  # CRT  n/N
-        ws.column_dimensions[get_column_letter(sc + 2)].width = 14  # OR (CI)
-        ws.column_dimensions[get_column_letter(sc + 3)].width = 8   # p
+                c = ws.cell(row=data_row, column=sc + 1, value=f"{ec}/{nc}\n({pc}%)")
+                c.font = font(size=10); c.fill = cfil; c.alignment = align(); c.border = border()
 
-    # Freeze panes: keep subgroup column and header rows visible
-    ws.freeze_panes = 'B4'
+                or_str = 'N/A' if np.isnan(or_v) else f"{or_v:.2f}\n({lo:.2f}\u2013{hi:.2f})"
+                c = ws.cell(row=data_row, column=sc + 2, value=or_str)
+                c.font = font(bold=sig, size=10); c.fill = cfil; c.alignment = align(); c.border = border()
+
+                if np.isnan(or_v):
+                    p_str, p_col = '\u2014', '000000'
+                elif p < 0.001:
+                    p_str, p_col = '<0.001', ('CC0000' if sig else '000000')
+                else:
+                    p_str, p_col = f"{p:.3f}", ('CC0000' if sig else '000000')
+                c = ws.cell(row=data_row, column=sc + 3, value=p_str)
+                c.font = font(bold=sig, size=10, color=p_col)
+                c.fill = cfil; c.alignment = align(); c.border = border()
+
+            ws.row_dimensions[data_row].height = 32
+
+        ws.column_dimensions['A'].width = 30
+        for tp_idx in range(N_TP):
+            sc = DCOL + tp_idx * M
+            ws.column_dimensions[get_column_letter(sc)].width     = 11
+            ws.column_dimensions[get_column_letter(sc + 1)].width = 11
+            ws.column_dimensions[get_column_letter(sc + 2)].width = 14
+            ws.column_dimensions[get_column_letter(sc + 3)].width = 8
+        ws.freeze_panes = 'B4'
+
+con.close()
 
 wb.save(OUT_PATH)
 print(f"Saved: {OUT_PATH}")

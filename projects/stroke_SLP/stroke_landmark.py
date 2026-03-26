@@ -41,7 +41,7 @@ from sklearn.preprocessing import StandardScaler
 
 DB_PATH  = r"F:\CMS\cms_data.duckdb"
 LANDMARK = 30   # days post-discharge
-MAX_FOLLOW = 1825  # 5-year max follow-up from discharge
+MAX_FOLLOW = 365  # 1-year max follow-up from discharge
 
 # ── 1. Load cohort ─────────────────────────────────────────────────────────────
 con = duckdb.connect(DB_PATH, read_only=True)

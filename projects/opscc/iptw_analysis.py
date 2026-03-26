@@ -1,7 +1,21 @@
 """
-Propensity Score Matching: TORS only vs CT/CRT only for non-metastatic OPSCC
-1:1 nearest-neighbor matching on logit(PS), caliper = 0.2 * SD(logit PS)
+Propensity Score Matching — two independent comparisons for OPSCC:
+  Comparison A: TORS alone vs RT alone
+  Comparison B: TORS + RT  vs CT/CRT
+
+Each comparison uses 1:1 nearest-neighbor matching on logit(PS),
+caliper = 0.2 × SD(logit PS).
+
+Outputs:
+  opscc_psm_A.parquet   — matched pairs for Comparison A
+  opscc_psm_B.parquet   — matched pairs for Comparison B
+  opscc_propensity columns added/updated:
+    psm_matched_A BOOLEAN, psm_match_id_A INTEGER
+    psm_matched_B BOOLEAN, psm_match_id_B INTEGER
 """
+
+import sys
+sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
 
 import duckdb
 import pandas as pd
@@ -12,194 +26,216 @@ from sklearn.metrics import roc_auc_score
 
 DB_PATH = r"F:\CMS\cms_data.duckdb"
 
-# ── 1. Load data ──────────────────────────────────────────────────────────────
-con = duckdb.connect(DB_PATH, read_only=True)
-
-df = con.execute("""
-    SELECT *
-    FROM opscc_propensity
-    WHERE tx_group IN ('TORS only', 'CT/CRT only')
-""").df()
-
-con.close()
-n_tors   = (df.tx_group == 'TORS only').sum()
-n_ctcrt  = (df.tx_group == 'CT/CRT only').sum()
-print(f"Loaded {len(df):,} patients  |  TORS: {n_tors:,}  CT/CRT: {n_ctcrt:,}")
-
-# ── 2. Prepare features ───────────────────────────────────────────────────────
-df['treatment'] = (df['tx_group'] == 'TORS only').astype(int)   # 1=TORS, 0=CT/CRT
-
-df['male']     = (df['sex']  == 'Male').astype(int)
-df['white']    = (df['race'] == 'White').astype(int)
-df['black']    = (df['race'] == 'Black').astype(int)
-df['hispanic'] = (df['race'] == 'Hispanic').astype(int)
-df['asian_pi'] = (df['race'] == 'Asian/PI').astype(int)
-
-elixhauser_flags = [
-    'chf','carit','valv','pcd','pvd','hypunc','hypc','para','ond','cpd',
-    'diabunc','diabc','hypothy','rf','ld','pud','aids','lymph','metacanc',
-    'solidtum','rheumd','coag','obes','wloss','fed','blane','dane',
-    'alcohol','drug','psycho','depre'
+FEATURE_COLS = [
+    'age_at_dx', 'male', 'white', 'black', 'hispanic', 'asian_pi',
+    'van_walraven_score', 'coag', 'chf', 'cpd', 'rf',
+    'dx_year',
+    'subsite_c01', 'subsite_c09', 'subsite_c10',
+    'region_south', 'region_midwest', 'region_west',
 ]
 
-df[elixhauser_flags] = df[elixhauser_flags].fillna(0).astype(int)
-df['van_walraven_score'] = df['van_walraven_score'].fillna(0)
+CONTINUOUS_VARS = ['age_at_dx', 'van_walraven_score', 'dx_year']
+BINARY_VARS     = [
+    'male', 'white', 'black', 'hispanic', 'asian_pi',
+    'coag', 'chf', 'cpd', 'rf',
+    'subsite_c01', 'subsite_c09', 'subsite_c10',
+    'region_south', 'region_midwest', 'region_west',
+]
 
-feature_cols = ['age_at_dx', 'male', 'white', 'black', 'hispanic', 'asian_pi'] + elixhauser_flags
 
-X = df[feature_cols].values
-y = df['treatment'].values
-
-# ── 3. Fit propensity score model ─────────────────────────────────────────────
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-ps_model = LogisticRegression(max_iter=1000, C=1.0, solver='lbfgs')
-ps_model.fit(X_scaled, y)
-
-df['ps']       = ps_model.predict_proba(X_scaled)[:, 1]
-df['logit_ps'] = np.log(df['ps'] / (1 - df['ps']))
-
-auc = roc_auc_score(y, df['ps'])
-print(f"\nPropensity model C-statistic (AUC): {auc:.3f}")
-
-# ── 4. 1:1 Nearest-neighbor matching (without replacement) ───────────────────
-# Caliper = 0.2 * SD(logit PS) — standard Cochran & Rubin rule
-caliper = 0.2 * df['logit_ps'].std()
-print(f"Caliper (0.2 x SD logit PS): {caliper:.4f}")
-
-# Reset index so positional lookup is clean
-df = df.reset_index(drop=True)
-
-tors_idx  = df.index[df['treatment'] == 1].tolist()
-ctcrt_idx = df.index[df['treatment'] == 0].tolist()
-
-# Shuffle TORS to avoid systematic ordering bias
-rng = np.random.default_rng(42)
-rng.shuffle(tors_idx)
-
-logit_ctcrt = df.loc[ctcrt_idx, 'logit_ps'].values
-ctcrt_available = np.ones(len(ctcrt_idx), dtype=bool)   # track unmatched controls
-
-matched_pairs   = []   # [(tors_idx, ctcrt_idx), ...]
-unmatched_tors  = []
-
-for ti in tors_idx:
-    lp_tors = df.loc[ti, 'logit_ps']
-    dists   = np.abs(logit_ctcrt - lp_tors)
-
-    # Mask already-matched controls
-    dists[~ctcrt_available] = np.inf
-    best = np.argmin(dists)
-
-    if dists[best] <= caliper:
-        matched_pairs.append((ti, ctcrt_idx[best]))
-        ctcrt_available[best] = False
-    else:
-        unmatched_tors.append(ti)
-
-n_matched = len(matched_pairs)
-print(f"\nMatching results:")
-print(f"  TORS matched:   {n_matched:,} / {n_tors:,}  ({100*n_matched/n_tors:.1f}%)")
-print(f"  TORS unmatched: {len(unmatched_tors):,}  (outside caliper)")
-print(f"  Matched pairs:  {n_matched:,}  (total N = {2*n_matched:,})")
-
-# Build matched dataset
-tors_rows  = [p[0] for p in matched_pairs]
-ctcrt_rows = [p[1] for p in matched_pairs]
-match_id   = list(range(n_matched))
-
-df_tors  = df.loc[tors_rows].copy();  df_tors['match_id']  = match_id
-df_ctcrt = df.loc[ctcrt_rows].copy(); df_ctcrt['match_id'] = match_id
-matched  = pd.concat([df_tors, df_ctcrt]).sort_values(['match_id','treatment'], ascending=[True,False])
-matched  = matched.reset_index(drop=True)
-
-# ── 5. Covariate balance ──────────────────────────────────────────────────────
-continuous_vars = ['age_at_dx', 'van_walraven_score']
-binary_vars     = ['male', 'white', 'black', 'hispanic', 'asian_pi'] + elixhauser_flags
-
+# ── SMD helpers ───────────────────────────────────────────────────────────────
 def smd_continuous(a, b):
-    diff = a.mean() - b.mean()
+    diff   = a.mean() - b.mean()
     pooled = np.sqrt((a.std()**2 + b.std()**2) / 2)
     return diff / pooled if pooled > 0 else 0.0
 
 def smd_binary(a, b):
     p1, p2 = a.mean(), b.mean()
-    denom = np.sqrt((p1*(1-p1) + p2*(1-p2)) / 2)
+    denom  = np.sqrt((p1*(1-p1) + p2*(1-p2)) / 2)
     return (p1 - p2) / denom if denom > 0 else 0.0
 
-tors_m  = matched[matched['treatment'] == 1]
-ctcrt_m = matched[matched['treatment'] == 0]
 
-# Unweighted (pre-match) pools
-tors_all  = df[df['treatment'] == 1]
-ctcrt_all = df[df['treatment'] == 0]
+# ── Core matching function ────────────────────────────────────────────────────
+def run_psm(df_raw, label, tors_label, ctrl_label, out_parquet, col_suffix):
+    """
+    Fit logistic PS model and run 1:1 NN matching for one comparison.
 
-balance_rows = []
-for var in continuous_vars + binary_vars:
-    fn = smd_continuous if var in continuous_vars else smd_binary
-    smd_before = abs(fn(tors_all[var],  ctcrt_all[var]))
-    smd_after  = abs(fn(tors_m[var],    ctcrt_m[var]))
-    balance_rows.append({
-        'variable':   var,
-        'tors_pre':   tors_all[var].mean(),
-        'ctcrt_pre':  ctcrt_all[var].mean(),
-        'tors_post':  tors_m[var].mean(),
-        'ctcrt_post': ctcrt_m[var].mean(),
-        'smd_before': round(smd_before, 3),
-        'smd_after':  round(smd_after,  3),
-        'balanced':   smd_after < 0.10
-    })
+    Parameters
+    ----------
+    df_raw      : full opscc_propensity dataframe (already filtered to non-Other)
+    label       : human-readable comparison label for printing
+    tors_label  : tx_group value for the TORS/surgical arm (treatment = 1)
+    ctrl_label  : tx_group value for the control arm       (treatment = 0)
+    out_parquet : output file path for the matched dataset
+    col_suffix  : 'A' or 'B' — suffix for psm_matched_X / psm_match_id_X columns
+    """
+    df = df_raw[df_raw['tx_group'].isin([tors_label, ctrl_label])].copy()
+    df['treatment'] = (df['tx_group'] == tors_label).astype(int)
 
-balance = pd.DataFrame(balance_rows)
+    n_tors  = (df['treatment'] == 1).sum()
+    n_ctrl  = (df['treatment'] == 0).sum()
+    print(f"\n{'='*70}")
+    print(f"  COMPARISON {col_suffix}: {tors_label}  vs  {ctrl_label}")
+    print(f"  N: {tors_label}={n_tors:,}   {ctrl_label}={n_ctrl:,}")
+    print(f"{'='*70}")
 
-print("\n-- Covariate Balance (SMD < 0.10 = well-balanced) ----------------------")
-print(f"{'Variable':<20} {'TORS pre':>9} {'CTRL pre':>9} {'TORS post':>10} {'CTRL post':>10} {'SMD pre':>8} {'SMD post':>9} {'OK':>4}")
-print("-" * 84)
-for _, row in balance.iterrows():
-    flag = "Y" if row['balanced'] else "X"
-    print(f"{row['variable']:<20} {row['tors_pre']:>9.3f} {row['ctcrt_pre']:>9.3f} "
-          f"{row['tors_post']:>10.3f} {row['ctcrt_post']:>10.3f} "
-          f"{row['smd_before']:>8.3f} {row['smd_after']:>9.3f} {flag:>4}")
+    # ── Features ──────────────────────────────────────────────────────────────
+    df['male']     = (df['sex']  == 'Male').astype(int)
+    df['white']    = (df['race'] == 'White').astype(int)
+    df['black']    = (df['race'] == 'Black').astype(int)
+    df['hispanic'] = (df['race'] == 'Hispanic').astype(int)
+    df['asian_pi'] = (df['race'] == 'Asian/PI').astype(int)
 
-imbalanced = balance[~balance['balanced']]
-print(f"\n{len(imbalanced)} variables still imbalanced after matching (SMD >= 0.10)")
-if len(imbalanced):
-    print(imbalanced[['variable','smd_before','smd_after']].to_string(index=False))
+    df['van_walraven_score'] = df['van_walraven_score'].fillna(0)
+    for flag in ['coag', 'chf', 'cpd', 'rf']:
+        df[flag] = df[flag].fillna(0).astype(int)
 
-# ── 6. PS distribution in matched sample ─────────────────────────────────────
-print("\n-- Propensity Score Distribution (matched sample) -----------------------")
-ps_summary = matched.groupby('tx_group')['ps'].describe().round(3)
-print(ps_summary.to_string())
+    df['dx_year'] = df['dx_year'].fillna(df['dx_year'].median()).astype(int)
 
-print("\n-- Logit PS: mean difference within matched pairs -----------------------")
-pair_diff = (matched[matched['treatment']==1]['logit_ps'].values
-           - matched[matched['treatment']==0]['logit_ps'].values)
-print(f"Mean |logit PS diff| within pairs: {np.abs(pair_diff).mean():.4f}")
-print(f"Max  |logit PS diff| within pairs: {np.abs(pair_diff).max():.4f}")
+    # Subsite dummies (reference = C14)
+    df['subsite_c01'] = (df['subsite'] == 'C01').astype(int)
+    df['subsite_c09'] = (df['subsite'] == 'C09').astype(int)
+    df['subsite_c10'] = (df['subsite'] == 'C10').astype(int)
 
-# ── 7. Save matched dataset & write psm_matched back to DB ───────────────────
-matched.to_parquet(r"F:\CMS\opscc_psm_matched.parquet", index=False)
-print(f"\nMatched dataset saved to F:\\CMS\\opscc_psm_matched.parquet")
-print(f"Columns include: DSYSRTKY, match_id, treatment, ps, logit_ps")
-print(f"Final matched cohort: {len(matched):,} patients ({n_matched:,} TORS + {n_matched:,} CT/CRT)")
+    # Census region dummies (reference = Northeast)
+    df['region_south']   = (df['census_region'] == 'South').astype(int)
+    df['region_midwest'] = (df['census_region'] == 'Midwest').astype(int)
+    df['region_west']    = (df['census_region'] == 'West').astype(int)
 
-# Write psm_matched and psm_match_id back to opscc_propensity
-print("\nWriting psm_matched flags to opscc_propensity...")
+    X = df[FEATURE_COLS].values
+    y = df['treatment'].values
+
+    # ── Propensity model ──────────────────────────────────────────────────────
+    scaler   = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    ps_model = LogisticRegression(max_iter=1000, C=1.0, solver='lbfgs')
+    ps_model.fit(X_scaled, y)
+
+    df['ps']       = ps_model.predict_proba(X_scaled)[:, 1]
+    df['logit_ps'] = np.log(df['ps'] / (1 - df['ps']))
+
+    auc = roc_auc_score(y, df['ps'])
+    print(f"\nPS model C-statistic (AUC): {auc:.3f}")
+
+    # ── 1:1 Nearest-neighbor matching ─────────────────────────────────────────
+    caliper = 0.2 * df['logit_ps'].std()
+    print(f"Caliper (0.2 × SD logit PS): {caliper:.4f}")
+
+    df = df.reset_index(drop=True)
+    tors_idx = df.index[df['treatment'] == 1].tolist()
+    ctrl_idx = df.index[df['treatment'] == 0].tolist()
+
+    rng = np.random.default_rng(42)
+    rng.shuffle(tors_idx)
+
+    logit_ctrl      = df.loc[ctrl_idx, 'logit_ps'].values
+    ctrl_available  = np.ones(len(ctrl_idx), dtype=bool)
+    matched_pairs   = []
+    unmatched_tors  = []
+
+    for ti in tors_idx:
+        lp_tors = df.loc[ti, 'logit_ps']
+        dists   = np.abs(logit_ctrl - lp_tors)
+        dists[~ctrl_available] = np.inf
+        best = np.argmin(dists)
+        if dists[best] <= caliper:
+            matched_pairs.append((ti, ctrl_idx[best]))
+            ctrl_available[best] = False
+        else:
+            unmatched_tors.append(ti)
+
+    n_matched = len(matched_pairs)
+    print(f"\nMatching results:")
+    print(f"  {tors_label} matched:   {n_matched:,} / {n_tors:,}  ({100*n_matched/n_tors:.1f}%)")
+    print(f"  {tors_label} unmatched: {len(unmatched_tors):,}")
+    print(f"  Matched pairs:  {n_matched:,}  (total N = {2*n_matched:,})")
+
+    tors_rows  = [p[0] for p in matched_pairs]
+    ctrl_rows  = [p[1] for p in matched_pairs]
+    match_ids  = list(range(n_matched))
+
+    df_t = df.loc[tors_rows].copy(); df_t['match_id'] = match_ids
+    df_c = df.loc[ctrl_rows].copy(); df_c['match_id'] = match_ids
+    matched = pd.concat([df_t, df_c]).sort_values(
+        ['match_id','treatment'], ascending=[True, False]).reset_index(drop=True)
+
+    # ── Balance ───────────────────────────────────────────────────────────────
+    tors_m   = matched[matched['treatment'] == 1]
+    ctrl_m   = matched[matched['treatment'] == 0]
+    tors_all = df[df['treatment'] == 1]
+    ctrl_all = df[df['treatment'] == 0]
+
+    balance_rows = []
+    for var in CONTINUOUS_VARS + BINARY_VARS:
+        fn = smd_continuous if var in CONTINUOUS_VARS else smd_binary
+        balance_rows.append({
+            'variable':   var,
+            'smd_before': round(abs(fn(tors_all[var], ctrl_all[var])), 3),
+            'smd_after':  round(abs(fn(tors_m[var],   ctrl_m[var])),   3),
+        })
+    balance = pd.DataFrame(balance_rows)
+    imb = balance[balance['smd_after'] >= 0.10]
+    print(f"\n{len(imb)} variables imbalanced after matching (SMD >= 0.10)")
+    if len(imb):
+        print(imb[['variable','smd_before','smd_after']].to_string(index=False))
+
+    # ── Save parquet ──────────────────────────────────────────────────────────
+    matched.to_parquet(out_parquet, index=False)
+    print(f"\nSaved: {out_parquet}")
+
+    return matched[['DSYSRTKY', 'match_id']].rename(columns={'match_id': f'psm_match_id_{col_suffix}'})
+
+
+# ── 1. Load full propensity table ─────────────────────────────────────────────
+print("Loading opscc_propensity...")
+con = duckdb.connect(DB_PATH, read_only=True)
+con.execute("SET memory_limit='24GB'; SET threads=12;")
+df_all = con.execute("SELECT * FROM opscc_propensity").df()
+con.close()
+print(f"  Loaded {len(df_all):,} patients")
+for grp, n in df_all.groupby('tx_group').size().items():
+    print(f"    {grp}: {n:,}")
+
+# ── 2. Run both PSM comparisons ───────────────────────────────────────────────
+ids_A = run_psm(
+    df_all,
+    label       = 'Comparison A',
+    tors_label  = 'TORS alone',
+    ctrl_label  = 'RT alone',
+    out_parquet = r"F:\CMS\projects\opscc\opscc_psm_A.parquet",
+    col_suffix  = 'A',
+)
+
+ids_B = run_psm(
+    df_all,
+    label       = 'Comparison B',
+    tors_label  = 'TORS + RT',
+    ctrl_label  = 'CT/CRT',
+    out_parquet = r"F:\CMS\projects\opscc\opscc_psm_B.parquet",
+    col_suffix  = 'B',
+)
+
+# ── 3. Write PSM flags back to opscc_propensity ───────────────────────────────
+print("\nWriting PSM flags to opscc_propensity...")
 con_rw = duckdb.connect(DB_PATH)
 con_rw.execute("SET memory_limit='24GB'; SET threads=12;")
-con_rw.execute("ALTER TABLE opscc_propensity ADD COLUMN IF NOT EXISTS psm_matched  BOOLEAN DEFAULT FALSE;")
-con_rw.execute("ALTER TABLE opscc_propensity ADD COLUMN IF NOT EXISTS psm_match_id INTEGER;")
-con_rw.execute("UPDATE opscc_propensity SET psm_matched = FALSE, psm_match_id = NULL;")
-df_ids = matched[['DSYSRTKY', 'match_id']].rename(columns={'match_id': 'psm_match_id'})
-con_rw.register('match_ids', df_ids)
-con_rw.execute("""
-    UPDATE opscc_propensity
-    SET psm_matched  = TRUE,
-        psm_match_id = m.psm_match_id
-    FROM match_ids m
-    WHERE opscc_propensity.DSYSRTKY = m.DSYSRTKY
-""")
-n_written = con_rw.execute("SELECT COUNT(*) FROM opscc_propensity WHERE psm_matched = TRUE").fetchone()[0]
+
+for suffix in ('A', 'B'):
+    con_rw.execute(f"ALTER TABLE opscc_propensity ADD COLUMN IF NOT EXISTS psm_matched_{suffix}  BOOLEAN DEFAULT FALSE;")
+    con_rw.execute(f"ALTER TABLE opscc_propensity ADD COLUMN IF NOT EXISTS psm_match_id_{suffix} INTEGER;")
+    con_rw.execute(f"UPDATE opscc_propensity SET psm_matched_{suffix} = FALSE, psm_match_id_{suffix} = NULL;")
+
+for ids_df, suffix in [(ids_A, 'A'), (ids_B, 'B')]:
+    con_rw.register(f'match_ids_{suffix}', ids_df)
+    con_rw.execute(f"""
+        UPDATE opscc_propensity
+        SET psm_matched_{suffix}  = TRUE,
+            psm_match_id_{suffix} = m.psm_match_id_{suffix}
+        FROM match_ids_{suffix} m
+        WHERE opscc_propensity.DSYSRTKY = m.DSYSRTKY
+    """)
+    n = con_rw.execute(f"SELECT COUNT(*) FROM opscc_propensity WHERE psm_matched_{suffix} = TRUE").fetchone()[0]
+    print(f"  Comparison {suffix}: psm_matched_{suffix} = TRUE for {n:,} patients")
+
 con_rw.close()
-print(f"  psm_matched = TRUE for {n_written:,} patients")
+print("\nDone.")

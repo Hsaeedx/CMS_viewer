@@ -17,10 +17,6 @@
 -- the most specific subcode (e.g. R1311, R1312) not the parent (R131).
 -- CPT, HCPCS, and ICD-10-PCS codes are exact matches.
 
-SET memory_limit='24GB';
-SET threads=12;
-SET temp_directory='F:\CMS\duckdb_temp';
-
 -- ── STEP 1: Cohort ────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE TEMP TABLE _cohort AS

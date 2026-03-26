@@ -1,9 +1,13 @@
--- Annotate opscc_cohort with first TORS date, first CT/CRT date, and metastatic flag
--- Treatment dates are unconstrained; apply treatment window (e.g. 6 months) at analysis time
--- Metastatic flag: any C76/C77/C78/C79 diagnosis within 90 days of first_hnc_date
+-- Annotate opscc_cohort with first TORS date, first chemo date, first RT date,
+-- and metastatic flag. Chemo and RT are stored separately so that propensity.sql
+-- can build the four treatment groups:
+--   TORS alone  | RT alone  | TORS + RT  | CT/CRT
+-- Treatment dates are unconstrained; apply treatment window (12 months) at analysis time.
+-- Metastatic flag: any C76/C77/C78/C79 diagnosis within 90 days of first_hnc_date.
 
-ALTER TABLE opscc_cohort ADD COLUMN IF NOT EXISTS first_tors_date DATE;
-ALTER TABLE opscc_cohort ADD COLUMN IF NOT EXISTS first_ctcrt_date DATE;
+ALTER TABLE opscc_cohort ADD COLUMN IF NOT EXISTS first_tors_date  DATE;
+ALTER TABLE opscc_cohort ADD COLUMN IF NOT EXISTS first_chemo_date DATE;
+ALTER TABLE opscc_cohort ADD COLUMN IF NOT EXISTS first_rt_date    DATE;
 ALTER TABLE opscc_cohort ADD COLUMN IF NOT EXISTS has_metastatic_dx BOOLEAN;
 
 WITH tors_claims AS (
@@ -75,20 +79,42 @@ chemo_claims AS (
 
 rt_claims AS (
 
+    -- Carrier (professional): delivery + management codes
+    -- 77385/77386 = IMRT delivery; G6015/G6016 = IMRT G-codes (HOPD alternative)
+    -- 77373 = SBRT; 77402/07/12 = conventional RT
+    -- 77523/77525 = proton beam; 77771/72/73 = brachytherapy HDR
+    -- 77427 = radiation management (requires active delivery to bill; carrier-only)
     SELECT DISTINCT c.DSYSRTKY, TRY_STRPTIME(c.THRU_DT,'%Y%m%d') AS tx_date
     FROM car_linek_all c
     JOIN opscc_cohort o ON c.DSYSRTKY = o.DSYSRTKY
-    WHERE c.HCPCS_CD IN ('77402','77407','77412','77385','77386','77373')
+    WHERE c.HCPCS_CD IN (
+        '77402','77407','77412',            -- conventional RT delivery
+        '77385','77386',                    -- IMRT delivery (CPT)
+        'G6015','G6016',                    -- IMRT delivery (CMS G-codes, HOPD)
+        '77373',                            -- SBRT delivery
+        '77520','77522','77523','77525',    -- proton beam delivery (simple/intermediate/complex)
+        '77771','77772','77773',            -- brachytherapy HDR
+        '77427'                             -- radiation treatment management (proof of delivery)
+    )
 
     UNION ALL
 
+    -- Outpatient facility: same delivery codes
     SELECT DISTINCT r.DSYSRTKY, TRY_STRPTIME(r.THRU_DT,'%Y%m%d') AS tx_date
     FROM out_revenuek_all r
     JOIN opscc_cohort o ON r.DSYSRTKY = o.DSYSRTKY
-    WHERE r.HCPCS_CD IN ('77402','77407','77412','77385','77386','77373')
+    WHERE r.HCPCS_CD IN (
+        '77402','77407','77412',
+        '77385','77386',
+        'G6015','G6016',
+        '77373',
+        '77520','77522','77523','77525',
+        '77771','77772','77773'
+    )
 
     UNION ALL
 
+    -- Inpatient: ICD-10-PCS radiation oncology codes
     SELECT DISTINCT i.DSYSRTKY,
         TRY_STRPTIME(COALESCE(NULLIF(i.PRCDR_DT1,''),i.THRU_DT),'%Y%m%d') AS tx_date
     FROM inp_claimsk_all i
@@ -103,7 +129,7 @@ rt_claims AS (
         i.ICD_PRCDR_CD25
     ]) AS t(code)
     WHERE (
-              code LIKE 'D9%'   -- ENT
+              code LIKE 'D9%'   -- ENT radiation (ICD-10-PCS)
            OR code LIKE 'D7_3%' -- Lymphatics, Neck
            OR code LIKE 'DW_1%' -- Head and Neck (anatomic region)
           )
@@ -186,10 +212,8 @@ updates AS (
     SELECT
         o.DSYSRTKY,
         ft.first_tors_date,
-        LEAST(
-            COALESCE(fc.first_chemo_date, fr.first_rt_date),
-            COALESCE(fr.first_rt_date,    fc.first_chemo_date)
-        ) AS first_ctcrt_date,
+        fc.first_chemo_date,
+        fr.first_rt_date,
         CASE WHEN m.DSYSRTKY IS NOT NULL THEN TRUE ELSE FALSE END AS has_metastatic_dx
     FROM opscc_cohort o
     LEFT JOIN first_tors  ft ON o.DSYSRTKY = ft.DSYSRTKY
@@ -201,7 +225,8 @@ updates AS (
 UPDATE opscc_cohort
 SET
     first_tors_date   = updates.first_tors_date,
-    first_ctcrt_date  = updates.first_ctcrt_date,
+    first_chemo_date  = updates.first_chemo_date,
+    first_rt_date     = updates.first_rt_date,
     has_metastatic_dx = updates.has_metastatic_dx
 FROM updates
 WHERE opscc_cohort.DSYSRTKY = updates.DSYSRTKY;
