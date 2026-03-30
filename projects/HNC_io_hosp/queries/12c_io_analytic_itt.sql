@@ -1,18 +1,17 @@
--- Final analytic dataset: one row per patient
--- Joins io_cohort + io_comorbidity + io_outcomes
--- Derives all analysis-ready variables
--- Output: io_analytic
+-- Step 12c: ITT analytic dataset — one row per patient
+-- Identical to 12_io_analytic.sql but uses ITT cohort tables.
+-- Includes had_prior_curative_therapy flag (1 = primary cohort, 0 = de novo/ITT-only).
+-- Output: io_analytic_itt
 
 SET memory_limit='24GB';
 SET threads=12;
 SET temp_directory='F:\CMS\duckdb_temp';
 
-DROP TABLE IF EXISTS io_analytic;
+DROP TABLE IF EXISTS io_analytic_itt;
 
-CREATE TABLE io_analytic AS
+CREATE TABLE io_analytic_itt AS
 
 WITH fips_cte AS (
-    -- Pull FIPS code for the month of death from MBSF (death-year row only)
     SELECT m.DSYSRTKY,
         CASE MONTH(TRY_STRPTIME(m.DEATH_DT,'%Y%m%d'))
             WHEN 1  THEN m.STATE_CNTY_FIPS_CD_01
@@ -29,25 +28,24 @@ WITH fips_cte AS (
             WHEN 12 THEN m.STATE_CNTY_FIPS_CD_12
         END AS fips_cd
     FROM mbsf_all m
-    JOIN io_cohort c ON m.DSYSRTKY = c.DSYSRTKY
+    JOIN io_cohort_itt c ON m.DSYSRTKY = c.DSYSRTKY
     WHERE CAST(m.RFRNC_YR AS INT) = YEAR(c.death_dt)
 ),
 
 chemo_io_flag AS (
-    -- Platinum within ±21 days of any IO claim = chemo-IO combination
     SELECT DISTINCT io.DSYSRTKY, 1 AS chemo_io
     FROM io_claims_raw io
     JOIN (
         SELECT l.DSYSRTKY, TRY_STRPTIME(l.THRU_DT,'%Y%m%d') AS chemo_date
         FROM io_car_lines l
-        JOIN io_cohort c ON l.DSYSRTKY = c.DSYSRTKY
+        JOIN io_cohort_itt c ON l.DSYSRTKY = c.DSYSRTKY
         WHERE l.HCPCS_CD IN ('J9060','J9045')
 
         UNION ALL
 
         SELECT r.DSYSRTKY, TRY_STRPTIME(COALESCE(NULLIF(r.REV_DT,''), r.THRU_DT),'%Y%m%d') AS chemo_date
         FROM io_out_revenue r
-        JOIN io_cohort c ON r.DSYSRTKY = c.DSYSRTKY
+        JOIN io_cohort_itt c ON r.DSYSRTKY = c.DSYSRTKY
         WHERE r.HCPCS_CD IN ('J9060','J9045')
     ) chemo ON io.DSYSRTKY = chemo.DSYSRTKY
     WHERE ABS(datediff('day', chemo.chemo_date, io.io_date)) <= 21
@@ -56,6 +54,9 @@ chemo_io_flag AS (
 SELECT
     -- Identity
     c.DSYSRTKY,
+
+    -- ITT flag
+    c.had_prior_curative_therapy,
 
     -- Demographics
     c.age_at_death,
@@ -90,71 +91,28 @@ SELECT
         ELSE NULL
     END AS urban_rural,
     CASE c.STATE_CD
-        -- Northeast
-        WHEN '07' THEN 'Northeast'  -- CT
-        WHEN '20' THEN 'Northeast'  -- ME
-        WHEN '22' THEN 'Northeast'  -- MA
-        WHEN '30' THEN 'Northeast'  -- NH
-        WHEN '31' THEN 'Northeast'  -- NJ
-        WHEN '33' THEN 'Northeast'  -- NY
-        WHEN '39' THEN 'Northeast'  -- PA
-        WHEN '73' THEN 'Northeast'  -- PA (eff. 10/2005)
-        WHEN '41' THEN 'Northeast'  -- RI
-        WHEN '47' THEN 'Northeast'  -- VT
-        -- Midwest
-        WHEN '14' THEN 'Midwest'    -- IL
-        WHEN '15' THEN 'Midwest'    -- IN
-        WHEN '16' THEN 'Midwest'    -- IA
-        WHEN '17' THEN 'Midwest'    -- KS
-        WHEN '70' THEN 'Midwest'    -- KS (eff. 10/2005)
-        WHEN '23' THEN 'Midwest'    -- MI
-        WHEN '24' THEN 'Midwest'    -- MN
-        WHEN '26' THEN 'Midwest'    -- MO
-        WHEN '28' THEN 'Midwest'    -- NE
-        WHEN '35' THEN 'Midwest'    -- ND
-        WHEN '36' THEN 'Midwest'    -- OH
-        WHEN '72' THEN 'Midwest'    -- OH (eff. 10/2005)
-        WHEN '43' THEN 'Midwest'    -- SD
-        WHEN '52' THEN 'Midwest'    -- WI
-        -- South
-        WHEN '01' THEN 'South'      -- AL
-        WHEN '04' THEN 'South'      -- AR
-        WHEN '08' THEN 'South'      -- DE
-        WHEN '09' THEN 'South'      -- DC
-        WHEN '10' THEN 'South'      -- FL
-        WHEN '68' THEN 'South'      -- FL (eff. 10/2005)
-        WHEN '69' THEN 'South'      -- FL (eff. 10/2005)
-        WHEN '11' THEN 'South'      -- GA
-        WHEN '18' THEN 'South'      -- KY
-        WHEN '19' THEN 'South'      -- LA
-        WHEN '71' THEN 'South'      -- LA (eff. 10/2005)
-        WHEN '21' THEN 'South'      -- MD
-        WHEN '80' THEN 'South'      -- MD (eff. 8/2000)
-        WHEN '25' THEN 'South'      -- MS
-        WHEN '34' THEN 'South'      -- NC
-        WHEN '37' THEN 'South'      -- OK
-        WHEN '42' THEN 'South'      -- SC
-        WHEN '44' THEN 'South'      -- TN
-        WHEN '45' THEN 'South'      -- TX
-        WHEN '67' THEN 'South'      -- TX (eff. 10/2005)
-        WHEN '74' THEN 'South'      -- TX (eff. 10/2005)
-        WHEN '49' THEN 'South'      -- VA
-        WHEN '51' THEN 'South'      -- WV
-        -- West
-        WHEN '02' THEN 'West'       -- AK
-        WHEN '03' THEN 'West'       -- AZ
-        WHEN '05' THEN 'West'       -- CA
-        WHEN '55' THEN 'West'       -- CA (duplicate)
-        WHEN '06' THEN 'West'       -- CO
-        WHEN '12' THEN 'West'       -- HI
-        WHEN '13' THEN 'West'       -- ID
-        WHEN '27' THEN 'West'       -- MT
-        WHEN '29' THEN 'West'       -- NV
-        WHEN '32' THEN 'West'       -- NM
-        WHEN '38' THEN 'West'       -- OR
-        WHEN '46' THEN 'West'       -- UT
-        WHEN '50' THEN 'West'       -- WA
-        WHEN '53' THEN 'West'       -- WY
+        WHEN '07' THEN 'Northeast'  WHEN '20' THEN 'Northeast'  WHEN '22' THEN 'Northeast'
+        WHEN '30' THEN 'Northeast'  WHEN '31' THEN 'Northeast'  WHEN '33' THEN 'Northeast'
+        WHEN '39' THEN 'Northeast'  WHEN '73' THEN 'Northeast'  WHEN '41' THEN 'Northeast'
+        WHEN '47' THEN 'Northeast'
+        WHEN '14' THEN 'Midwest'    WHEN '15' THEN 'Midwest'    WHEN '16' THEN 'Midwest'
+        WHEN '17' THEN 'Midwest'    WHEN '70' THEN 'Midwest'    WHEN '23' THEN 'Midwest'
+        WHEN '24' THEN 'Midwest'    WHEN '26' THEN 'Midwest'    WHEN '28' THEN 'Midwest'
+        WHEN '35' THEN 'Midwest'    WHEN '36' THEN 'Midwest'    WHEN '72' THEN 'Midwest'
+        WHEN '43' THEN 'Midwest'    WHEN '52' THEN 'Midwest'
+        WHEN '01' THEN 'South'      WHEN '04' THEN 'South'      WHEN '08' THEN 'South'
+        WHEN '09' THEN 'South'      WHEN '10' THEN 'South'      WHEN '68' THEN 'South'
+        WHEN '69' THEN 'South'      WHEN '11' THEN 'South'      WHEN '18' THEN 'South'
+        WHEN '19' THEN 'South'      WHEN '71' THEN 'South'      WHEN '21' THEN 'South'
+        WHEN '80' THEN 'South'      WHEN '25' THEN 'South'      WHEN '34' THEN 'South'
+        WHEN '37' THEN 'South'      WHEN '42' THEN 'South'      WHEN '44' THEN 'South'
+        WHEN '45' THEN 'South'      WHEN '67' THEN 'South'      WHEN '74' THEN 'South'
+        WHEN '49' THEN 'South'      WHEN '51' THEN 'South'
+        WHEN '02' THEN 'West'       WHEN '03' THEN 'West'       WHEN '05' THEN 'West'
+        WHEN '55' THEN 'West'       WHEN '06' THEN 'West'       WHEN '12' THEN 'West'
+        WHEN '13' THEN 'West'       WHEN '27' THEN 'West'       WHEN '29' THEN 'West'
+        WHEN '32' THEN 'West'       WHEN '38' THEN 'West'       WHEN '46' THEN 'West'
+        WHEN '50' THEN 'West'       WHEN '53' THEN 'West'
         ELSE NULL
     END AS census_region,
 
@@ -227,7 +185,6 @@ SELECT
         WHEN cm.van_walraven_score <= 4 THEN '1-4'
         ELSE '5+'
     END AS elixhauser_cat,
-    -- Individual flags
     cm.chf, cm.carit, cm.valv, cm.pcd, cm.pvd,
     cm.hypunc, cm.hypc, cm.para, cm.ond, cm.cpd,
     cm.diabunc, cm.diabc, cm.hypothy, cm.rf, cm.ld,
@@ -235,10 +192,10 @@ SELECT
     cm.rheumd, cm.coag, cm.obes, cm.wloss, cm.fed,
     cm.blane, cm.dane, cm.alcohol, cm.drug, cm.psycho, cm.depre
 
-FROM io_cohort c
-JOIN io_outcomes o  ON c.DSYSRTKY = o.DSYSRTKY
-JOIN io_comorbidity cm ON c.DSYSRTKY = cm.DSYSRTKY
+FROM io_cohort_itt c
+JOIN io_outcomes_itt o    ON c.DSYSRTKY = o.DSYSRTKY
+JOIN io_comorbidity_itt cm ON c.DSYSRTKY = cm.DSYSRTKY
 LEFT JOIN chemo_io_flag cf ON c.DSYSRTKY = cf.DSYSRTKY
-LEFT JOIN fips_cte f ON c.DSYSRTKY = f.DSYSRTKY
-LEFT JOIN rucc_lookup r ON f.fips_cd = r.FIPS
-LEFT JOIN io_sensitivity_vars sv ON c.DSYSRTKY = sv.DSYSRTKY;
+LEFT JOIN fips_cte f       ON c.DSYSRTKY = f.DSYSRTKY
+LEFT JOIN rucc_lookup r    ON f.fips_cd = r.FIPS
+LEFT JOIN io_sensitivity_vars_itt sv ON c.DSYSRTKY = sv.DSYSRTKY;
