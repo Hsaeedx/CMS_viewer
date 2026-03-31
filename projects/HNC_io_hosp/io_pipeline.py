@@ -114,11 +114,11 @@ STEPS = [
     ("11_io_hospice.sql",          "io_outcomes",             "Outcomes: hospice + in-hospital death"),
     ("12a_io_sensitivity.sql",    "io_sensitivity_vars",     "Sensitivity: median interdose interval"),
     ("12_io_analytic.sql",        "io_analytic",             "Analytic dataset (primary cohort)"),
-    ("09b_io_cohort_itt.sql",     "io_cohort_itt",           "ITT cohort (no curative therapy req.)"),
-    ("12b_io_sensitivity_itt.sql","io_sensitivity_vars_itt", "Sensitivity ITT: median interdose interval"),
-    ("10b_io_comorbidity_itt.sql","io_comorbidity_itt",      "ITT comorbidity: Elixhauser/van Walraven"),
-    ("11b_io_outcomes_itt.sql",   "io_outcomes_itt",         "ITT outcomes: hospice + in-hospital death"),
-    ("12c_io_analytic_itt.sql",   "io_analytic_itt",         "Analytic dataset (ITT cohort)"),
+    ("09b_io_cohort_itc.sql",     "io_cohort_itc",           "ITC cohort (no curative therapy req.)"),
+    ("12b_io_sensitivity_itc.sql","io_sensitivity_vars_itc", "Sensitivity ITC: median interdose interval"),
+    ("10b_io_comorbidity_itc.sql","io_comorbidity_itc",      "ITC comorbidity: Elixhauser/van Walraven"),
+    ("11b_io_outcomes_itc.sql",   "io_outcomes_itc",         "ITC outcomes: hospice + in-hospital death"),
+    ("12c_io_analytic_itc.sql",   "io_analytic_itc",         "Analytic dataset (ITC cohort)"),
 ]
 
 

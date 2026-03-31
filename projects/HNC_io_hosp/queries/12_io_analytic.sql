@@ -210,6 +210,8 @@ SELECT
     sv.estimated_regimen,
     sv.discontinued_threshold_days,
     (datediff('day', c.last_io_date, c.death_dt) <= COALESCE(sv.discontinued_threshold_days, 42))::INT AS io_within_regimen_window,
+    -- Days from next expected dose to death (negative = died before next dose was due)
+    (datediff('day', c.last_io_date, c.death_dt) - COALESCE(sv.median_interdose_days, 42)) AS days_past_expected_dose_to_death,
 
     -- Outcomes
     o.hospice_enrolled,

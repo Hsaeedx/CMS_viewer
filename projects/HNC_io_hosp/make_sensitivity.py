@@ -7,9 +7,9 @@ A) Regimen-adjusted IO discontinuation timing (io_analytic — primary cohort)
    Sheet 2 — Outcomes by regimen: hospice + in-hospital death rates
    Sheet 3 — Reclassified patients: those outside 30d window but within regimen window
 
-B) Intent-to-treat comparison (io_analytic_itt)
-   Sheet 4 — Primary vs ITT: key outcomes compared between cohorts
-   Sheet 5 — ITT-only patients (de novo, no prior curative therapy): characteristics
+B) Intent-to-treat comparison (io_analytic_itc)
+   Sheet 4 — Primary vs ITC: key outcomes compared between cohorts
+   Sheet 5 — ITC-only patients (de novo, no prior curative therapy): characteristics
 
 Output: C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/sensitivity_analysis.xlsx
 """
@@ -26,7 +26,7 @@ DB_PATH  = r"F:\CMS\cms_data.duckdb"
 OUT_PATH = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\sensitivity_analysis.xlsx"
 
 # ── Load data ──────────────────────────────────────────────────────────────────
-print("Loading io_analytic and io_analytic_itt...")
+print("Loading io_analytic and io_analytic_itc...")
 con = duckdb.connect(DB_PATH, read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
@@ -35,43 +35,45 @@ df = con.execute("""
         days_last_io_to_death,
         io_within_14d_of_death, io_within_30d_of_death,
         median_interdose_days, estimated_regimen,
-        discontinued_threshold_days, io_within_regimen_window
+        discontinued_threshold_days, io_within_regimen_window,
+        days_past_expected_dose_to_death
     FROM io_analytic
 """).df()
-df_itt = con.execute("""
+df_itc = con.execute("""
     SELECT
         hospice_enrolled, in_hospital_death,
         days_last_io_to_death,
         io_within_14d_of_death, io_within_30d_of_death,
         io_within_regimen_window,
+        days_past_expected_dose_to_death,
         had_prior_curative_therapy,
         hospice_los_days, hospice_short_stay,
         age_cat, sex, subsite_category, io_agent
-    FROM io_analytic_itt
+    FROM io_analytic_itc
 """).df()
 con.close()
 
 for col in ['hospice_enrolled','in_hospital_death','io_within_14d_of_death',
             'io_within_30d_of_death','io_within_regimen_window']:
-    df[col]  = df[col].fillna(0).astype(int)
+    df[col] = df[col].fillna(0).astype(int)
 df['estimated_regimen'] = df['estimated_regimen'].fillna('single-dose')
 
 for col in ['hospice_enrolled','in_hospital_death','io_within_14d_of_death',
             'io_within_30d_of_death','io_within_regimen_window',
             'had_prior_curative_therapy','hospice_los_days','hospice_short_stay']:
-    if col in df_itt.columns:
-        df_itt[col] = df_itt[col].fillna(0)
+    if col in df_itc.columns:
+        df_itc[col] = df_itc[col].fillna(0)
 for col in ['hospice_enrolled','in_hospital_death','io_within_14d_of_death',
             'io_within_30d_of_death','io_within_regimen_window',
             'had_prior_curative_therapy','hospice_short_stay']:
-    df_itt[col] = df_itt[col].astype(int)
+    df_itc[col] = df_itc[col].astype(int)
 
 N    = len(df)
-N_itt = len(df_itt)
-df_primary  = df_itt[df_itt['had_prior_curative_therapy'] == 1]
-df_itt_only = df_itt[df_itt['had_prior_curative_therapy'] == 0]
+N_itc = len(df_itc)
+df_primary  = df_itc[df_itc['had_prior_curative_therapy'] == 1]
+df_itc_only = df_itc[df_itc['had_prior_curative_therapy'] == 0]
 print(f"  Primary cohort N = {N:,}")
-print(f"  ITT cohort N     = {N_itt:,}  (ITT-only = {len(df_itt_only):,})")
+print(f"  ITC cohort N     = {N_itc:,}  (ITC-only = {len(df_itc_only):,})")
 print(f"  Regimen distribution:\n{df['estimated_regimen'].value_counts()}")
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -101,20 +103,22 @@ print("Building Sheet 1: Timing comparison...")
 s1_rows = []
 
 def s1_row(label, sub):
-    n        = len(sub)
-    mdn      = med_iqr(sub['days_last_io_to_death'])
-    w14      = n_pct(sub['io_within_14d_of_death'].sum(), n)
-    w30      = n_pct(sub['io_within_30d_of_death'].sum(), n)
-    wreg     = n_pct(sub['io_within_regimen_window'].sum(), n)
+    n         = len(sub)
+    mdn       = med_iqr(sub['days_last_io_to_death'])
+    w14       = n_pct(sub['io_within_14d_of_death'].sum(), n)
+    w30       = n_pct(sub['io_within_30d_of_death'].sum(), n)
+    wreg      = n_pct(sub['io_within_regimen_window'].sum(), n)
     med_idose = med_iqr(sub['median_interdose_days'])
+    mdn_past  = med_iqr(sub['days_past_expected_dose_to_death'])
     s1_rows.append({
-        'Estimated Dosing Regimen':                          label,
-        'N':                                                 n,
-        'Median time between IO doses, days (IQR)':          med_idose,
-        'Days from last IO dose to death, median (IQR)':     mdn,
-        'Last IO dose within 14 days of death, n (%)':       w14,
-        'Last IO dose within 30 days of death, n (%)':       w30,
-        'Last IO dose within regimen-adjusted window†, n (%)': wreg,
+        'Estimated Dosing Regimen':                                    label,
+        'N':                                                           n,
+        'Median time between IO doses, days (IQR)':                    med_idose,
+        'Days from last IO dose to death, median (IQR)':               mdn,
+        'Days from next expected dose to death, median (IQR)†':        mdn_past,
+        'Last IO dose within 14 days of death, n (%)':                 w14,
+        'Last IO dose within 30 days of death, n (%)':                 w30,
+        'Last IO dose within regimen-adjusted window‡, n (%)':         wreg,
     })
 
 s1_row('Overall', df)
@@ -161,34 +165,40 @@ COL_GROUP = 'Patient Group (by IO timing definition)'
 COL_HOSP  = 'Enrolled in hospice, n (%)'
 COL_IHD   = 'Died in hospital, n (%)'
 COL_DAYS  = 'Days from last IO dose to death, median (IQR)'
+COL_PAST  = 'Days from next expected dose to death, median (IQR)†'
 COL_NOTE  = 'Interpretation'
 
 s3_rows = []
-n_outside_30d = (df['io_within_30d_of_death'] == 0).sum()
+n_outside_30d  = (df['io_within_30d_of_death'] == 0).sum()
 n_confirmed_dc = n_outside_30d - Nr
+df_gt30        = df[df['io_within_30d_of_death'] == 0]
+df_confirmed   = df[(df['io_within_30d_of_death'] == 0) & (df['io_within_regimen_window'] == 0)]
 
 s3_rows.append({
     COL_GROUP: 'Last IO dose >30 days before death  [conventional definition: IO discontinued]',
     'N':       n_outside_30d,
-    COL_HOSP:  n_pct(df[df['io_within_30d_of_death']==0]['hospice_enrolled'].sum(), n_outside_30d),
-    COL_IHD:   n_pct(df[df['io_within_30d_of_death']==0]['in_hospital_death'].sum(), n_outside_30d),
-    COL_DAYS:  med_iqr(df[df['io_within_30d_of_death']==0]['days_last_io_to_death']),
+    COL_HOSP:  n_pct(df_gt30['hospice_enrolled'].sum(), n_outside_30d),
+    COL_IHD:   n_pct(df_gt30['in_hospital_death'].sum(), n_outside_30d),
+    COL_DAYS:  med_iqr(df_gt30['days_last_io_to_death']),
+    COL_PAST:  med_iqr(df_gt30['days_past_expected_dose_to_death']),
     COL_NOTE:  'Primary analysis group',
 })
 s3_rows.append({
-    COL_GROUP: '  Of whom: died before next expected dose†  [regimen-adjusted: still on IO at death]',
+    COL_GROUP: '  Of whom: died before next expected dose  [regimen-adjusted: still on IO at death]',
     'N':       Nr,
     COL_HOSP:  n_pct(reclassified['hospice_enrolled'].sum(), Nr),
     COL_IHD:   n_pct(reclassified['in_hospital_death'].sum(), Nr),
     COL_DAYS:  med_iqr(reclassified['days_last_io_to_death']),
+    COL_PAST:  med_iqr(reclassified['days_past_expected_dose_to_death']),
     COL_NOTE:  'Reclassified as on-treatment by this sensitivity analysis',
 })
 s3_rows.append({
     COL_GROUP: '  Of whom: died after next expected dose  [confirmed IO discontinuation]',
     'N':       n_confirmed_dc,
-    COL_HOSP:  n_pct(df[(df['io_within_30d_of_death']==0)&(df['io_within_regimen_window']==0)]['hospice_enrolled'].sum(), n_confirmed_dc),
-    COL_IHD:   n_pct(df[(df['io_within_30d_of_death']==0)&(df['io_within_regimen_window']==0)]['in_hospital_death'].sum(), n_confirmed_dc),
-    COL_DAYS:  med_iqr(df[(df['io_within_30d_of_death']==0)&(df['io_within_regimen_window']==0)]['days_last_io_to_death']),
+    COL_HOSP:  n_pct(df_confirmed['hospice_enrolled'].sum(), n_confirmed_dc),
+    COL_IHD:   n_pct(df_confirmed['in_hospital_death'].sum(), n_confirmed_dc),
+    COL_DAYS:  med_iqr(df_confirmed['days_last_io_to_death']),
+    COL_PAST:  med_iqr(df_confirmed['days_past_expected_dose_to_death']),
     COL_NOTE:  'Truly discontinued IO before death',
 })
 for reg in REGIMEN_ORDER:
@@ -200,13 +210,14 @@ for reg in REGIMEN_ORDER:
             COL_HOSP:  n_pct(sub['hospice_enrolled'].sum(), len(sub)),
             COL_IHD:   n_pct(sub['in_hospital_death'].sum(), len(sub)),
             COL_DAYS:  med_iqr(sub['days_last_io_to_death']),
+            COL_PAST:  med_iqr(sub['days_past_expected_dose_to_death']),
             COL_NOTE:  '',
         })
 
 df_s3 = pd.DataFrame(s3_rows)
 
-# ── Sheet 4: Primary vs ITT comparison ────────────────────────────────────────
-print("Building Sheet 4: Primary vs ITT comparison...")
+# ── Sheet 4: Primary vs ITC comparison ────────────────────────────────────────
+print("Building Sheet 4: Primary vs ITC comparison...")
 
 def compare_row(label, sub_p, sub_i):
     np_, ni_ = len(sub_p), len(sub_i)
@@ -218,7 +229,7 @@ def compare_row(label, sub_p, sub_i):
                                                  else n_pct(sub_p['io_within_30d_of_death'].sum(), np_) if '30d' in label.lower()
                                                  else n_pct(sub_p['io_within_regimen_window'].sum(), np_) if 'regimen' in label.lower()
                                                  else med_iqr(sub_p['days_last_io_to_death']),
-        f'ITT cohort (N={N_itt:,})':            n_pct(sub_i['hospice_enrolled'].sum(), ni_) if 'hospice' in label.lower()
+        f'ITC cohort (N={N_itc:,})':            n_pct(sub_i['hospice_enrolled'].sum(), ni_) if 'hospice' in label.lower()
                                                  else n_pct(sub_i['in_hospital_death'].sum(), ni_) if 'in-hospital' in label.lower()
                                                  else n_pct(sub_i['io_within_14d_of_death'].sum(), ni_) if '14d' in label.lower()
                                                  else n_pct(sub_i['io_within_30d_of_death'].sum(), ni_) if '30d' in label.lower()
@@ -226,47 +237,47 @@ def compare_row(label, sub_p, sub_i):
                                                  else med_iqr(sub_i['days_last_io_to_death']),
     }
 
-P_COL = f'Prior ITT\n(prior curative therapy, N={N:,})'
-I_COL = f'ITT + No ITT\n(all HNC+IO patients, N={N_itt:,})'
+P_COL = f'Prior ITC\n(prior curative therapy, N={N:,})'
+I_COL = f'ITC + No ITC\n(all HNC+IO patients, N={N_itc:,})'
 
 def row4(outcome, p_val, i_val):
     return {'Outcome / Characteristic': outcome, P_COL: p_val, I_COL: i_val}
 
 s4_rows = [
-    row4('Total patients, N', f'{N:,}', f'{N_itt:,}'),
+    row4('Total patients, N', f'{N:,}', f'{N_itc:,}'),
     row4('— OUTCOMES —', '', ''),
     row4('Enrolled in hospice, n (%)',
          n_pct(df['hospice_enrolled'].sum(), N),
-         n_pct(df_itt['hospice_enrolled'].sum(), N_itt)),
+         n_pct(df_itc['hospice_enrolled'].sum(), N_itc)),
     row4('Hospice length of stay among enrolled, median days (IQR)',
          med_iqr(df_primary['hospice_los_days'][df_primary['hospice_enrolled']==1]) if 'hospice_los_days' in df_primary.columns else '—',
-         med_iqr(df_itt['hospice_los_days'][df_itt['hospice_enrolled']==1]) if 'hospice_los_days' in df_itt.columns else '—'),
+         med_iqr(df_itc['hospice_los_days'][df_itc['hospice_enrolled']==1]) if 'hospice_los_days' in df_itc.columns else '—'),
     row4('Died in hospital, n (%)',
          n_pct(df['in_hospital_death'].sum(), N),
-         n_pct(df_itt['in_hospital_death'].sum(), N_itt)),
+         n_pct(df_itc['in_hospital_death'].sum(), N_itc)),
     row4('— IO TIMING —', '', ''),
     row4('Days from last IO dose to death, median (IQR)',
          med_iqr(df['days_last_io_to_death']),
-         med_iqr(df_itt['days_last_io_to_death'])),
+         med_iqr(df_itc['days_last_io_to_death'])),
     row4('Last IO dose within 14 days of death, n (%)',
          n_pct(df['io_within_14d_of_death'].sum(), N),
-         n_pct(df_itt['io_within_14d_of_death'].sum(), N_itt)),
+         n_pct(df_itc['io_within_14d_of_death'].sum(), N_itc)),
     row4('Last IO dose within 30 days of death, n (%)',
          n_pct(df['io_within_30d_of_death'].sum(), N),
-         n_pct(df_itt['io_within_30d_of_death'].sum(), N_itt)),
+         n_pct(df_itc['io_within_30d_of_death'].sum(), N_itc)),
     row4('Last IO dose within regimen-adjusted window†, n (%)\n(likely still on IO at death)',
          n_pct(df['io_within_regimen_window'].sum(), N),
-         n_pct(df_itt['io_within_regimen_window'].sum(), N_itt)),
+         n_pct(df_itc['io_within_regimen_window'].sum(), N_itc)),
 ]
 df_s4 = pd.DataFrame(s4_rows)
 
-# ── Sheet 5: Prior ITT vs No ITT comparison ───────────────────────────────────
-print("Building Sheet 5: Prior ITT vs No ITT comparison...")
+# ── Sheet 5: Prior ITC vs No ITC comparison ───────────────────────────────────
+print("Building Sheet 5: Prior ITC vs No ITC comparison...")
 
-Nd  = len(df_itt_only)
+Nd  = len(df_itc_only)
 Np  = len(df_primary)
-P5_COL = f'Prior ITT\n(prior curative therapy, N={Np:,})'
-N5_COL = f'No ITT\n(no prior curative therapy, N={Nd:,})'
+P5_COL = f'Prior ITC\n(prior curative therapy, N={Np:,})'
+N5_COL = f'No ITC\n(no prior curative therapy, N={Nd:,})'
 s5_rows = []
 
 def s5_add(label, p_val, n_val):
@@ -278,41 +289,44 @@ def s5_npct2(p_series, n_series, val=1):
 
 s5_add('Total patients, N', f'{Np:,}', f'{Nd:,}')
 s5_add('OUTCOMES', '', '')
-pv, nv = s5_npct2(df_primary['hospice_enrolled'], df_itt_only['hospice_enrolled'])
+pv, nv = s5_npct2(df_primary['hospice_enrolled'], df_itc_only['hospice_enrolled'])
 s5_add('  Enrolled in hospice, n (%)', pv, nv)
-pv, nv = s5_npct2(df_primary['in_hospital_death'], df_itt_only['in_hospital_death'])
+pv, nv = s5_npct2(df_primary['in_hospital_death'], df_itc_only['in_hospital_death'])
 s5_add('  Died in hospital, n (%)', pv, nv)
 s5_add('  Days from last IO dose to death, median (IQR)',
        med_iqr(df_primary['days_last_io_to_death']),
-       med_iqr(df_itt_only['days_last_io_to_death']))
-pv, nv = s5_npct2(df_primary['io_within_14d_of_death'], df_itt_only['io_within_14d_of_death'])
+       med_iqr(df_itc_only['days_last_io_to_death']))
+pv, nv = s5_npct2(df_primary['io_within_14d_of_death'], df_itc_only['io_within_14d_of_death'])
 s5_add('  Last IO dose within 14 days of death, n (%)', pv, nv)
-pv, nv = s5_npct2(df_primary['io_within_30d_of_death'], df_itt_only['io_within_30d_of_death'])
+pv, nv = s5_npct2(df_primary['io_within_30d_of_death'], df_itc_only['io_within_30d_of_death'])
 s5_add('  Last IO dose within 30 days of death, n (%)', pv, nv)
-pv, nv = s5_npct2(df_primary['io_within_regimen_window'], df_itt_only['io_within_regimen_window'])
-s5_add('  Last IO dose within regimen-adjusted window†, n (%)', pv, nv)
+pv, nv = s5_npct2(df_primary['io_within_regimen_window'], df_itc_only['io_within_regimen_window'])
+s5_add('  Last IO dose within regimen-adjusted window‡, n (%)', pv, nv)
+s5_add('  Days from next expected dose to death, median (IQR)†',
+       med_iqr(df_primary['days_past_expected_dose_to_death']),
+       med_iqr(df_itc_only['days_past_expected_dose_to_death']))
 s5_add('DEMOGRAPHICS', '', '')
 for cat in ['66-69','70-74','75-79','80-84','85+']:
     s5_add(f'  Age {cat}, n (%)',
            n_pct((df_primary['age_cat']==cat).sum(), Np),
-           n_pct((df_itt_only['age_cat']==cat).sum(), Nd))
+           n_pct((df_itc_only['age_cat']==cat).sum(), Nd))
 s5_add('  Male sex, n (%)',
        n_pct((df_primary['sex']=='Male').sum(), Np),
-       n_pct((df_itt_only['sex']=='Male').sum(), Nd))
+       n_pct((df_itc_only['sex']=='Male').sum(), Nd))
 s5_add('TUMOR SUBSITE', '', '')
 all_subsites = sorted(set(df_primary['subsite_category'].dropna()) |
-                      set(df_itt_only['subsite_category'].dropna()))
+                      set(df_itc_only['subsite_category'].dropna()))
 for sub in all_subsites:
     s5_add(f'  {sub}, n (%)',
            n_pct((df_primary['subsite_category']==sub).sum(), Np),
-           n_pct((df_itt_only['subsite_category']==sub).sum(), Nd))
+           n_pct((df_itc_only['subsite_category']==sub).sum(), Nd))
 s5_add('IO AGENT', '', '')
 all_agents = sorted(set(df_primary['io_agent'].dropna()) |
-                    set(df_itt_only['io_agent'].dropna()))
+                    set(df_itc_only['io_agent'].dropna()))
 for ag in all_agents:
     s5_add(f'  {ag}, n (%)',
            n_pct((df_primary['io_agent']==ag).sum(), Np),
-           n_pct((df_itt_only['io_agent']==ag).sum(), Nd))
+           n_pct((df_itc_only['io_agent']==ag).sum(), Nd))
 
 df_s5 = pd.DataFrame(s5_rows)
 
@@ -374,18 +388,20 @@ wb = openpyxl.Workbook()
 wb.remove(wb.active)  # remove default sheet
 
 FOOTNOTE_REGIMEN = (
-    '† Regimen-adjusted window = patient\'s own median time between IO doses + 14 days (tolerance). '
-    'A patient whose last dose falls within this window likely died before their next scheduled infusion '
-    'and was still actively on IO at the time of death. '
-    'Single-dose patients use a default 42-day threshold (every-6-week schedule + 2-week buffer).'
+    '† Days from next expected dose to death = days from last IO dose to death minus median interdose interval. '
+    'Negative values indicate the patient died before their next dose was due (still on schedule); '
+    'positive values indicate the patient had already missed at least one dose. '
+    'Single-dose patients use a default interval of 42 days. '
+    '‡ Regimen-adjusted window = median interdose interval + 14 days tolerance. '
+    'A patient within this window likely died before their next scheduled infusion.'
 )
-FOOTNOTE_ITT = (
-    'Prior ITT (N=2,527): patients who received prior curative-intent therapy (surgery or radiation) '
+FOOTNOTE_ITC = (
+    'Prior ITC (N=2,527): patients who received prior curative-intent therapy (surgery or radiation) '
     'before IO — i.e., recurrent or metastatic HNC. '
-    'No ITT (N=817): patients with NO documented prior curative therapy — likely de novo metastatic '
+    'No ITC (N=817): patients with NO documented prior curative therapy — likely de novo metastatic '
     'or unresectable HNC treated with IO as first-line. '
-    'ITT + No ITT (N=3,344): all HNC+IO patients combined; includes every patient in the Prior ITT '
-    'cohort plus the No ITT group.'
+    'ITC + No ITC (N=3,344): all HNC+IO patients combined; includes every patient in the Prior ITC '
+    'cohort plus the No ITC group.'
 )
 
 ws1 = write_sheet(
@@ -413,23 +429,23 @@ ws3 = write_sheet(
 ws3.cell(row=ws3.max_row + 2, column=1, value=FOOTNOTE_REGIMEN).font = NOTE_FONT
 
 ws4 = write_sheet(
-    wb, 'B1. Prior ITT vs ITT+No ITT',
-    (f'Sensitivity B: Prior ITT only (N={N:,}) vs ITT + No ITT combined (N={N_itt:,}) — '
-     f'does including No ITT patients change the results?'),
+    wb, 'B1. Prior ITC vs ITC+No ITC',
+    (f'Sensitivity B: Prior ITC only (N={N:,}) vs ITC + No ITC combined (N={N_itc:,}) — '
+     f'does including No ITC patients change the results?'),
     df_s4,
     [52, 36, 36]
 )
-ws4.cell(row=ws4.max_row + 2, column=1, value=FOOTNOTE_ITT).font = NOTE_FONT
+ws4.cell(row=ws4.max_row + 2, column=1, value=FOOTNOTE_ITC).font = NOTE_FONT
 ws4.cell(row=ws4.max_row + 1, column=1, value=FOOTNOTE_REGIMEN).font = NOTE_FONT
 
 ws5 = write_sheet(
-    wb, 'B2. Prior ITT vs No ITT',
-    (f'Sensitivity B: Direct comparison of Prior ITT (N={Np:,}) vs No ITT (N={Nd:,}) patients — '
+    wb, 'B2. Prior ITC vs No ITC',
+    (f'Sensitivity B: Direct comparison of Prior ITC (N={Np:,}) vs No ITC (N={Nd:,}) patients — '
      f'does the absence of prior curative therapy change end-of-life care patterns?'),
     df_s5,
     [52, 36, 36]
 )
-ws5.cell(row=ws5.max_row + 2, column=1, value=FOOTNOTE_ITT).font = NOTE_FONT
+ws5.cell(row=ws5.max_row + 2, column=1, value=FOOTNOTE_ITC).font = NOTE_FONT
 
 wb.save(OUT_PATH)
 print(f"Saved: {OUT_PATH}")

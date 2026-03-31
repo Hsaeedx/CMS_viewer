@@ -1027,7 +1027,7 @@ SELECT * FROM last_episode;</code></pre>
     <tr><th>Analysis</th><th>Gap Threshold</th><th>Rationale</th></tr>
     <tr><td>Primary</td><td>120 days</td><td>Accommodates treatment holds up to 8 weeks + scheduling delays</td></tr>
 </table>
-<p class="note" style="margin-top:0.5rem">Alternative gap thresholds (90d, 180d) are not currently implemented as pipeline steps. The primary 120-day threshold is used in all analyses including sensitivity analyses. See <a href="#sensitivity-analyses">Section 12</a> for implemented sensitivity analyses (regimen-adjusted timing and expanded ITT cohort).</p>
+<p class="note" style="margin-top:0.5rem">Alternative gap thresholds (90d, 180d) are not currently implemented as pipeline steps. The primary 120-day threshold is used in all analyses including sensitivity analyses. See <a href="#sensitivity-analyses">Section 12</a> for implemented sensitivity analyses (regimen-adjusted timing and expanded ITC cohort).</p>
 
 
 <!-- ============================================ -->
@@ -1370,7 +1370,7 @@ comorbidity_end   = DEATH_DT - INTERVAL '2 months'
     <tr><td><code>fig2_days_io_to_death.png</code></td><td>Figure 2: Timing from last IO dose to death (histogram + categories)</td><td>make_figures.py</td></tr>
     <tr><td><code>fig3_hospice_los.png</code></td><td>Figure 3: Hospice LOS distribution among enrolled patients</td><td>make_figures.py</td></tr>
     <tr><td><code>top10_admissions.xlsx</code></td><td>Top 10 principal diagnoses for inpatient admissions within 30 days of death (N, % of all qualifying admissions)</td><td>make_top10_admissions.py</td></tr>
-    <tr><td><code>sensitivity_analysis.xlsx</code></td><td>Sensitivity analyses: (A) regimen-adjusted IO timing by estimated dosing schedule; (B) outcomes comparing Prior ITT vs expanded ITT + No ITT cohort</td><td>make_sensitivity.py</td></tr>
+    <tr><td><code>sensitivity_analysis.xlsx</code></td><td>Sensitivity analyses: (A) regimen-adjusted IO timing by estimated dosing schedule; (B) outcomes comparing Prior ITC vs expanded ITC + No ITC cohort</td><td>make_sensitivity.py</td></tr>
 </table>
 
 <h3>Table 1: Patient Characteristics</h3>
@@ -1513,7 +1513,7 @@ Database: F:\CMS\cms_data.duckdb (DuckDB; SET memory_limit='24GB'; SET threads=1
 </table>
 <p><em>Cutoffs use midpoints between standard clinical intervals. Nivolumab q4w (every 28 days) falls in the q3w bucket (22–35d); this is expected and not separately categorized.</em></p>
 
-<h3>New Columns Added to <code>io_analytic</code> and <code>io_analytic_itt</code></h3>
+<h3>New Columns Added to <code>io_analytic</code> and <code>io_analytic_itc</code></h3>
 <table>
     <tr><th>Column</th><th>Type</th><th>Description</th></tr>
     <tr><td><code>median_interdose_days</code></td><td>FLOAT</td><td>Median days between consecutive IO doses in final episode</td></tr>
@@ -1531,7 +1531,7 @@ Database: F:\CMS\cms_data.duckdb (DuckDB; SET memory_limit='24GB'; SET threads=1
 </table>
 
 <!-- SENSITIVITY B -->
-<h2>Sensitivity B: Expanded ITT Cohort (Prior ITT vs ITT + No ITT)</h2>
+<h2>Sensitivity B: Expanded ITC Cohort (Prior ITC vs ITC + No ITC)</h2>
 
 <p><strong>Rationale:</strong> The primary cohort requires documented prior curative-intent surgery or radiation in Medicare claims before the last IO episode. This screens for patients with recurrent/metastatic disease after prior treatment. However, some patients who received care outside Medicare claims (VA, pre-enrollment period) may be incorrectly excluded. This sensitivity includes all HNC+IO patients meeting other eligibility criteria, regardless of documented curative therapy, and compares outcomes between the two groups.</p>
 
@@ -1539,29 +1539,29 @@ Database: F:\CMS\cms_data.duckdb (DuckDB; SET memory_limit='24GB'; SET threads=1
     <h3>Cohort Definitions</h3>
     <table>
         <tr><th>Label</th><th>N</th><th>Definition</th></tr>
-        <tr><td><strong>Prior ITT</strong></td><td>2,527</td><td>Primary cohort: HNC + IO + documented prior curative therapy (surgery or radiation in Medicare claims). <code>had_prior_curative_therapy = 1</code>.</td></tr>
-        <tr><td><strong>No ITT</strong></td><td>~817</td><td>HNC + IO with no documented prior curative therapy in Medicare claims. Likely de novo metastatic or received prior care outside Medicare. <code>had_prior_curative_therapy = 0</code>.</td></tr>
-        <tr><td><strong>ITT + No ITT</strong></td><td>~3,344</td><td>All HNC + IO patients meeting eligibility criteria (ESRD, geography, FFS, ≥180d). Superset of Prior ITT. Used in Sensitivity B comparisons.</td></tr>
+        <tr><td><strong>Prior ITC</strong></td><td>2,527</td><td>Primary cohort: HNC + IO + documented prior curative therapy (surgery or radiation in Medicare claims). <code>had_prior_curative_therapy = 1</code>.</td></tr>
+        <tr><td><strong>No ITC</strong></td><td>~817</td><td>HNC + IO with no documented prior curative therapy in Medicare claims. Likely de novo metastatic or received prior care outside Medicare. <code>had_prior_curative_therapy = 0</code>.</td></tr>
+        <tr><td><strong>ITC + No ITC</strong></td><td>~3,344</td><td>All HNC + IO patients meeting eligibility criteria (ESRD, geography, FFS, ≥180d). Superset of Prior ITC. Used in Sensitivity B comparisons.</td></tr>
     </table>
 </div>
 
-<h3>Additional SQL Steps (ITT Sensitivity Pipeline)</h3>
+<h3>Additional SQL Steps (ITC Sensitivity Pipeline)</h3>
 <table>
     <tr><th>SQL File</th><th>Output Table</th><th>Description</th></tr>
-    <tr><td><code>09b_io_cohort_itt.sql</code></td><td><code>io_cohort_itt</code></td><td>Expanded cohort: same criteria as primary but LEFT JOIN on <code>io_curative</code>; adds <code>had_prior_curative_therapy</code> flag (0/1)</td></tr>
-    <tr><td><code>10b_io_comorbidity_itt.sql</code></td><td><code>io_comorbidity_itt</code></td><td>Elixhauser / van Walraven comorbidity for expanded cohort</td></tr>
-    <tr><td><code>11b_io_outcomes_itt.sql</code></td><td><code>io_outcomes_itt</code></td><td>Hospice + in-hospital death outcomes for expanded cohort</td></tr>
-    <tr><td><code>12b_io_sensitivity_itt.sql</code></td><td><code>io_sensitivity_vars_itt</code></td><td>Median interdose intervals and regimen classification for expanded cohort</td></tr>
-    <tr><td><code>12c_io_analytic_itt.sql</code></td><td><code>io_analytic_itt</code></td><td>Final analytic dataset for expanded cohort; identical structure to <code>io_analytic</code> plus <code>had_prior_curative_therapy</code></td></tr>
+    <tr><td><code>09b_io_cohort_itc.sql</code></td><td><code>io_cohort_itc</code></td><td>Expanded cohort: same criteria as primary but LEFT JOIN on <code>io_curative</code>; adds <code>had_prior_curative_therapy</code> flag (0/1)</td></tr>
+    <tr><td><code>10b_io_comorbidity_itc.sql</code></td><td><code>io_comorbidity_itc</code></td><td>Elixhauser / van Walraven comorbidity for expanded cohort</td></tr>
+    <tr><td><code>11b_io_outcomes_itc.sql</code></td><td><code>io_outcomes_itc</code></td><td>Hospice + in-hospital death outcomes for expanded cohort</td></tr>
+    <tr><td><code>12b_io_sensitivity_itc.sql</code></td><td><code>io_sensitivity_vars_itc</code></td><td>Median interdose intervals and regimen classification for expanded cohort</td></tr>
+    <tr><td><code>12c_io_analytic_itc.sql</code></td><td><code>io_analytic_itc</code></td><td>Final analytic dataset for expanded cohort; identical structure to <code>io_analytic</code> plus <code>had_prior_curative_therapy</code></td></tr>
 </table>
 
-<p><em>Note: "No ITT" means no documented prior curative-intent therapy found in Medicare claims. Absence of claims does not definitively confirm de novo disease — patients may have received prior treatment in non-Medicare settings (VA, CHIP, pre-65 private insurance). Interpret accordingly.</em></p>
+<p><em>Note: "No ITC" means no documented prior curative-intent therapy found in Medicare claims. Absence of claims does not definitively confirm de novo disease — patients may have received prior treatment in non-Medicare settings (VA, CHIP, pre-65 private insurance). Interpret accordingly.</em></p>
 
 <h3>Output Sheets (Sensitivity B)</h3>
 <table>
     <tr><th>Sheet</th><th>Contents</th></tr>
-    <tr><td>B1. Prior ITT vs ITT + No ITT</td><td>Side-by-side outcomes for primary cohort (N=2,527) vs expanded cohort (N≈3,344)</td></tr>
-    <tr><td>B2. Prior ITT vs No ITT</td><td>Direct comparison of patients with vs without documented prior curative therapy (demographics, subsite, IO agent, outcomes)</td></tr>
+    <tr><td>B1. Prior ITC vs ITC + No ITC</td><td>Side-by-side outcomes for primary cohort (N=2,527) vs expanded cohort (N≈3,344)</td></tr>
+    <tr><td>B2. Prior ITC vs No ITC</td><td>Direct comparison of patients with vs without documented prior curative therapy (demographics, subsite, IO agent, outcomes)</td></tr>
 </table>
 
 <hr>

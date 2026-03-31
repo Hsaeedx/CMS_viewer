@@ -1,15 +1,15 @@
 -- Step 12c: ITT analytic dataset — one row per patient
 -- Identical to 12_io_analytic.sql but uses ITT cohort tables.
 -- Includes had_prior_curative_therapy flag (1 = primary cohort, 0 = de novo/ITT-only).
--- Output: io_analytic_itt
+-- Output: io_analytic_itc
 
 SET memory_limit='24GB';
 SET threads=12;
 SET temp_directory='F:\CMS\duckdb_temp';
 
-DROP TABLE IF EXISTS io_analytic_itt;
+DROP TABLE IF EXISTS io_analytic_itc;
 
-CREATE TABLE io_analytic_itt AS
+CREATE TABLE io_analytic_itc AS
 
 WITH fips_cte AS (
     SELECT m.DSYSRTKY,
@@ -28,7 +28,7 @@ WITH fips_cte AS (
             WHEN 12 THEN m.STATE_CNTY_FIPS_CD_12
         END AS fips_cd
     FROM mbsf_all m
-    JOIN io_cohort_itt c ON m.DSYSRTKY = c.DSYSRTKY
+    JOIN io_cohort_itc c ON m.DSYSRTKY = c.DSYSRTKY
     WHERE CAST(m.RFRNC_YR AS INT) = YEAR(c.death_dt)
 ),
 
@@ -38,14 +38,14 @@ chemo_io_flag AS (
     JOIN (
         SELECT l.DSYSRTKY, TRY_STRPTIME(l.THRU_DT,'%Y%m%d') AS chemo_date
         FROM io_car_lines l
-        JOIN io_cohort_itt c ON l.DSYSRTKY = c.DSYSRTKY
+        JOIN io_cohort_itc c ON l.DSYSRTKY = c.DSYSRTKY
         WHERE l.HCPCS_CD IN ('J9060','J9045')
 
         UNION ALL
 
         SELECT r.DSYSRTKY, TRY_STRPTIME(COALESCE(NULLIF(r.REV_DT,''), r.THRU_DT),'%Y%m%d') AS chemo_date
         FROM io_out_revenue r
-        JOIN io_cohort_itt c ON r.DSYSRTKY = c.DSYSRTKY
+        JOIN io_cohort_itc c ON r.DSYSRTKY = c.DSYSRTKY
         WHERE r.HCPCS_CD IN ('J9060','J9045')
     ) chemo ON io.DSYSRTKY = chemo.DSYSRTKY
     WHERE ABS(datediff('day', chemo.chemo_date, io.io_date)) <= 21
@@ -168,6 +168,8 @@ SELECT
     sv.estimated_regimen,
     sv.discontinued_threshold_days,
     (datediff('day', c.last_io_date, c.death_dt) <= COALESCE(sv.discontinued_threshold_days, 42))::INT AS io_within_regimen_window,
+    -- Days from next expected dose to death (negative = died before next dose was due)
+    (datediff('day', c.last_io_date, c.death_dt) - COALESCE(sv.median_interdose_days, 42)) AS days_past_expected_dose_to_death,
 
     -- Outcomes
     o.hospice_enrolled,
@@ -192,10 +194,10 @@ SELECT
     cm.rheumd, cm.coag, cm.obes, cm.wloss, cm.fed,
     cm.blane, cm.dane, cm.alcohol, cm.drug, cm.psycho, cm.depre
 
-FROM io_cohort_itt c
-JOIN io_outcomes_itt o    ON c.DSYSRTKY = o.DSYSRTKY
-JOIN io_comorbidity_itt cm ON c.DSYSRTKY = cm.DSYSRTKY
+FROM io_cohort_itc c
+JOIN io_outcomes_itc o    ON c.DSYSRTKY = o.DSYSRTKY
+JOIN io_comorbidity_itc cm ON c.DSYSRTKY = cm.DSYSRTKY
 LEFT JOIN chemo_io_flag cf ON c.DSYSRTKY = cf.DSYSRTKY
 LEFT JOIN fips_cte f       ON c.DSYSRTKY = f.DSYSRTKY
 LEFT JOIN rucc_lookup r    ON f.fips_cd = r.FIPS
-LEFT JOIN io_sensitivity_vars_itt sv ON c.DSYSRTKY = sv.DSYSRTKY;
+LEFT JOIN io_sensitivity_vars_itc sv ON c.DSYSRTKY = sv.DSYSRTKY;

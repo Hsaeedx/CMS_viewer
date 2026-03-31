@@ -1,21 +1,21 @@
--- Step 10b: Elixhauser comorbidity for ITT cohort (io_cohort_itt)
--- Identical to 10_io_elixhauser.sql; io_cohort replaced with io_cohort_itt
--- Output: io_comorbidity_itt
+-- Step 10b: Elixhauser comorbidity for ITT cohort (io_cohort_itc)
+-- Identical to 10_io_elixhauser.sql; io_cohort replaced with io_cohort_itc
+-- Output: io_comorbidity_itc
 
 SET memory_limit='24GB';
 SET threads=12;
 SET temp_directory='F:\CMS\duckdb_temp';
 
-DROP TABLE IF EXISTS io_comorbidity_itt;
+DROP TABLE IF EXISTS io_comorbidity_itc;
 
-CREATE TABLE io_comorbidity_itt AS
+CREATE TABLE io_comorbidity_itc AS
 
 WITH dx_raw AS (
 
     -- Inpatient: principal + admitting + 25 secondary diagnosis slots
     SELECT h.DSYSRTKY, code
     FROM io_inp_claims i
-    JOIN io_cohort_itt h ON i.DSYSRTKY = h.DSYSRTKY,
+    JOIN io_cohort_itc h ON i.DSYSRTKY = h.DSYSRTKY,
     UNNEST([
         i.PRNCPAL_DGNS_CD, i.ADMTG_DGNS_CD,
         i.ICD_DGNS_CD1,  i.ICD_DGNS_CD2,  i.ICD_DGNS_CD3,  i.ICD_DGNS_CD4,
@@ -36,7 +36,7 @@ WITH dx_raw AS (
     -- Carrier: one diagnosis code per line (LINE_ICD_DGNS_CD)
     SELECT h.DSYSRTKY, c.LINE_ICD_DGNS_CD AS code
     FROM io_car_lines c
-    JOIN io_cohort_itt h ON c.DSYSRTKY = h.DSYSRTKY
+    JOIN io_cohort_itc h ON c.DSYSRTKY = h.DSYSRTKY
     WHERE c.LINE_ICD_DGNS_CD IS NOT NULL
       AND TRY_STRPTIME(c.THRU_DT, '%Y%m%d')
               BETWEEN h.death_dt - INTERVAL 13 MONTH
@@ -47,7 +47,7 @@ WITH dx_raw AS (
     -- Outpatient: principal + 25 secondary diagnosis slots
     SELECT h.DSYSRTKY, code
     FROM io_out_claims oc
-    JOIN io_cohort_itt h ON oc.DSYSRTKY = h.DSYSRTKY,
+    JOIN io_cohort_itc h ON oc.DSYSRTKY = h.DSYSRTKY,
     UNNEST([
         oc.PRNCPAL_DGNS_CD,
         oc.ICD_DGNS_CD1,  oc.ICD_DGNS_CD2,  oc.ICD_DGNS_CD3,  oc.ICD_DGNS_CD4,
@@ -300,5 +300,5 @@ SELECT
         COALESCE(f.depre,    0) * -3
     ) AS van_walraven_score
 
-FROM io_cohort_itt h
+FROM io_cohort_itc h
 LEFT JOIN flags f ON h.DSYSRTKY = f.DSYSRTKY;

@@ -1,15 +1,15 @@
--- Step 12b: Sensitivity analysis variables for ITT cohort (io_cohort_itt)
--- Identical logic to 12a_io_sensitivity.sql scoped to io_cohort_itt.
--- Requires io_cohort_itt to exist (step 09b).
--- Output: io_sensitivity_vars_itt
+-- Step 12b: Sensitivity analysis variables for ITT cohort (io_cohort_itc)
+-- Identical logic to 12a_io_sensitivity.sql scoped to io_cohort_itc.
+-- Requires io_cohort_itc to exist (step 09b).
+-- Output: io_sensitivity_vars_itc
 
 SET memory_limit='24GB';
 SET threads=12;
 SET temp_directory='F:\CMS\duckdb_temp';
 
-DROP TABLE IF EXISTS io_sensitivity_vars_itt;
+DROP TABLE IF EXISTS io_sensitivity_vars_itc;
 
-CREATE TABLE io_sensitivity_vars_itt AS
+CREATE TABLE io_sensitivity_vars_itc AS
 
 WITH last_ep_claims AS (
     SELECT
@@ -19,7 +19,7 @@ WITH last_ep_claims AS (
     FROM io_claims_raw cr
     JOIN io_episodes ep ON cr.DSYSRTKY = ep.DSYSRTKY
     WHERE cr.io_date BETWEEN ep.last_io_episode_start AND ep.last_io_episode_end
-      AND cr.DSYSRTKY IN (SELECT DSYSRTKY FROM io_cohort_itt)
+      AND cr.DSYSRTKY IN (SELECT DSYSRTKY FROM io_cohort_itc)
 ),
 
 intervals AS (
@@ -56,5 +56,5 @@ SELECT
         ELSE CAST(pm.median_interdose_days AS INT) + 14
     END AS discontinued_threshold_days
 
-FROM (SELECT DSYSRTKY FROM io_cohort_itt) c
+FROM (SELECT DSYSRTKY FROM io_cohort_itc) c
 LEFT JOIN patient_median pm ON c.DSYSRTKY = pm.DSYSRTKY;

@@ -2,15 +2,15 @@
 -- Includes all HNC+IO patients meeting FFS/geography/ESRD/180-day criteria,
 -- regardless of documented prior curative-intent surgery or radiation.
 -- had_prior_curative_therapy flag (1/0) distinguishes the two populations.
--- Output: io_cohort_itt
+-- Output: io_cohort_itc
 
 SET memory_limit='24GB';
 SET threads=12;
 SET temp_directory='F:\CMS\duckdb_temp';
 
-DROP TABLE IF EXISTS io_cohort_itt;
+DROP TABLE IF EXISTS io_cohort_itc;
 
-CREATE TABLE io_cohort_itt AS
+CREATE TABLE io_cohort_itc AS
 
 SELECT
     d.DSYSRTKY,

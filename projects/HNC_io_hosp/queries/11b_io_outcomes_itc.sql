@@ -1,21 +1,21 @@
--- Step 11b: Outcome definitions for ITT cohort (io_cohort_itt)
--- Identical to 11_io_hospice.sql; io_cohort replaced with io_cohort_itt
--- Output: io_outcomes_itt
+-- Step 11b: Outcome definitions for ITT cohort (io_cohort_itc)
+-- Identical to 11_io_hospice.sql; io_cohort replaced with io_cohort_itc
+-- Output: io_outcomes_itc
 
 SET memory_limit='24GB';
 SET threads=12;
 SET temp_directory='F:\CMS\duckdb_temp';
 
-DROP TABLE IF EXISTS io_outcomes_itt;
+DROP TABLE IF EXISTS io_outcomes_itc;
 
-CREATE TABLE io_outcomes_itt AS
+CREATE TABLE io_outcomes_itc AS
 
 WITH hospice_raw AS (
     SELECT
         h.DSYSRTKY,
         TRY_STRPTIME(h.HSPCSTRT, '%Y%m%d') AS hospice_start
     FROM io_hosp_claims h
-    JOIN io_cohort_itt c ON h.DSYSRTKY = c.DSYSRTKY
+    JOIN io_cohort_itc c ON h.DSYSRTKY = c.DSYSRTKY
     WHERE h.HSPCSTRT IS NOT NULL
       AND h.HSPCSTRT <> ''
       AND TRY_STRPTIME(h.HSPCSTRT, '%Y%m%d') < c.death_dt
@@ -35,7 +35,7 @@ inhospital_raw AS (
         i.DSYSRTKY,
         1 AS in_hospital_death
     FROM io_inp_claims i
-    JOIN io_cohort_itt c ON i.DSYSRTKY = c.DSYSRTKY
+    JOIN io_cohort_itc c ON i.DSYSRTKY = c.DSYSRTKY
     WHERE i.STUS_CD = '20'
       AND i.DSCHRGDT IS NOT NULL
       AND i.DSCHRGDT <> ''
@@ -66,6 +66,6 @@ SELECT
     END AS days_last_io_to_hospice,
     COALESCE(ih.in_hospital_death, 0) AS in_hospital_death
 
-FROM io_cohort_itt c
+FROM io_cohort_itc c
 LEFT JOIN hospice_summary hs ON c.DSYSRTKY = hs.DSYSRTKY
 LEFT JOIN inhospital_raw  ih ON c.DSYSRTKY = ih.DSYSRTKY;
