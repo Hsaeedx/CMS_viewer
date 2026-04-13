@@ -3,15 +3,13 @@ stroke_psm.py
 
 Propensity score matching for the stroke + SLP timing study.
 
-Two pairwise PSM comparisons (each 1:1 greedy nearest-neighbor, caliper = 0.2 * SD(logit PS)):
-  Comparison A: 0-14d  vs 31-90d  → psm_matched_A / psm_match_id_A / prop_score_A
-  Comparison B: 15-30d vs 31-90d  → psm_matched_B / psm_match_id_B / prop_score_B
+Single PSM comparison (1:1 greedy nearest-neighbor, caliper = 0.2 * SD(logit PS)):
+  Comparison A: Early (8-35d)  vs Late (36-90d)  → psm_matched_A / psm_match_id_A / prop_score_A
 
 Covariates in PS model:
   age_at_adm, index_los, van_walraven_score, adm_year (continuous)
   sex, race, stroke_type, adm_source (categorical)
-  dysphagia_poa, aspiration_poa, mech_vent, peg_placed, trach_placed,
-  prior_stroke, afib, hypertension (binary)
+  afib, hypertension, mech_vent, prior_stroke (binary)
   drg_group (bucketed DRG)
 """
 
@@ -36,13 +34,11 @@ RANDOM_SEED = 42
 # ── Covariate lists ────────────────────────────────────────────────────────────
 
 CONT_VARS   = ['age_at_adm', 'index_los', 'van_walraven_score', 'adm_year']
-BINARY_VARS = ['dysphagia_poa', 'aspiration_poa', 'afib', 'hypertension',
-               'mech_vent', 'peg_placed', 'trach_placed', 'prior_stroke']
-CAT_VARS    = ['sex', 'race', 'stroke_type', 'drg_group', 'adm_source']
+BINARY_VARS = ['afib', 'hypertension', 'mech_vent', 'prior_stroke', 'dual_eligible']
+CAT_VARS    = ['sex', 'race', 'stroke_type', 'drg_group', 'adm_source', 'rucc_group']
 
 COMPARISONS = [
-    ('A', '0-14d',  '31-90d'),   # treated='0-14d',  control='31-90d'
-    ('B', '15-30d', '31-90d'),   # treated='15-30d', control='31-90d'
+    ('A', 'Early', 'Late'),    # treated='Early' (days 8-35), control='Late' (days 36-90)
 ]
 
 
@@ -215,19 +211,24 @@ def main():
             trach_placed,
             prior_stroke,
             afib,
-            hypertension
+            hypertension,
+            rucc_group,
+            dual_eligible
         FROM stroke_propensity
+        WHERE slp_timing_group IN ('Early', 'Late')
     """).df()
 
     for col in CONT_VARS:
         df[col] = df[col].fillna(df[col].median())
-    df['drg_group'] = df['drg_cd'].apply(bucket_drg)
-    df['adm_source'] = df['adm_source'].fillna('Unknown').astype(str)
-    df['adm_year']   = df['adm_year'].fillna(df['adm_year'].median()).astype(int)
+    df['drg_group']    = df['drg_cd'].apply(bucket_drg)
+    df['adm_source']   = df['adm_source'].fillna('Unknown').astype(str)
+    df['adm_year']     = df['adm_year'].fillna(df['adm_year'].median()).astype(int)
+    df['rucc_group']   = df['rucc_group'].fillna('Unknown').astype(str)
+    df['dual_eligible'] = df['dual_eligible'].fillna(0).astype(int)
 
     counts = df['slp_timing_group'].value_counts()
     print(f"  Loaded {len(df):,} rows  |  " +
-          "  ".join(f"{g}:{counts.get(g,0):,}" for g in ['0-14d','15-30d','31-90d','No SLP']))
+          "  ".join(f"{g}:{counts.get(g,0):,}" for g in ['Early', 'Late']))
 
     # ── Run both comparisons ──────────────────────────────────────────────────
     print("\nWriting match results to stroke_propensity ...")

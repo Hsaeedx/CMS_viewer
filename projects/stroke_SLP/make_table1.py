@@ -1,194 +1,331 @@
 """
 make_table1.py
-Cohort characteristics table for presentation.
-Columns: Full stroke cohort | Study cohort (home/HHA, SLP, survived 90d) | 0-14d | 15-30d | 31-90d
-Output: F:\CMS\projects\stroke_SLP\table1_psm.xlsx
+
+Single-sheet Table 1: cohort characteristics before and after propensity matching.
+
+Layout (one table, two grouped column sets):
+  Characteristic | Before Matching [Early Wks 1-4 | Late Wk 5+ | SMD] | After Matching [Early Wks 1-4 | Late Wk 5+ | SMD]
+
+Comparison: Early SLP (Weeks 1-4, days 8-35) vs Late SLP (Week 5+, days 36-90).
 """
 import os
-import sys
 from pathlib import Path
-
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-import duckdb, numpy as np, pandas as pd
+import duckdb
+import numpy as np
+import pandas as pd
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
-_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP" / "output_files"
 _out_dir.mkdir(parents=True, exist_ok=True)
 DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
-OUT_PATH = _out_dir / "table1_psm.xlsx"
+OUT_PATH = _out_dir / "Table1.xlsx"
 
+# ── Load data ──────────────────────────────────────────────────────────────────
 print("Loading data...")
 con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
     SELECT
         p.DSYSRTKY,
-        p.dschg_status,
-        p.slp_outpt_any_90d,
-        p.slp_outpt_0_14d, p.slp_outpt_15_30d, p.slp_outpt_31_90d,
-        p.age_at_adm, p.sex, p.stroke_type,
-        p.index_los, p.van_walraven_score,
-        p.dysphagia_poa, p.aspiration_poa,
-        p.mech_vent, p.peg_placed, p.trach_placed,
-        p.prior_stroke, p.dementia, p.afib, p.hypertension,
-        o.days_to_death
+        p.slp_timing_group,
+        p.psm_matched_A,
+        p.dschg_group,
+        p.age_at_adm,
+        p.sex,
+        p.race,
+        p.stroke_type,
+        p.index_los,
+        p.van_walraven_score,
+        p.adm_year,
+        p.mech_vent,
+        p.prior_stroke,
+        p.dementia,
+        p.afib,
+        p.hypertension,
+        p.dyslipid,
+        p.smoking,
+        p.rucc_group,
+        p.dual_eligible,
+        o.days_to_death,
+        o.days_to_aspiration,
+        o.days_to_gtube
     FROM stroke_propensity p
     JOIN stroke_outcomes o ON o.DSYSRTKY = p.DSYSRTKY
 """).df()
 con.close()
-print(f"  Loaded {len(df):,} rows")
 
-def map_dschg(c):
-    c = str(c).strip() if not pd.isna(c) else ''
-    if c in ('01','08'): return 'home'
-    if c == '06':        return 'hha'
-    if c in ('03','61'): return 'snf'
-    if c == '62':        return 'irf'
-    return 'other'
+for col in ['days_to_death', 'days_to_aspiration', 'days_to_gtube']:
+    df[col] = pd.to_numeric(df[col], errors='coerce')
 
-df['dschg_group'] = df['dschg_status'].apply(map_dschg)
-df['days_to_death'] = df['days_to_death'].astype('float64')
+# ── Cohort subsets ─────────────────────────────────────────────────────────────
+early_pre  = df[df['slp_timing_group'] == 'Early']
+late_pre   = df[df['slp_timing_group'] == 'Late']
+early_post = df[(df['psm_matched_A'] == True) & (df['slp_timing_group'] == 'Early')]
+late_post  = df[(df['psm_matched_A'] == True) & (df['slp_timing_group'] == 'Late')]
 
-def slp_timing(row):
-    if row['slp_outpt_0_14d']  == 1: return '0-14d'
-    if row['slp_outpt_15_30d'] == 1: return '15-30d'
-    if row['slp_outpt_31_90d'] == 1: return '31-90d'
-    return None
+print(f"  Pre-match:  Early={len(early_pre):,}  Late={len(late_pre):,}")
+print(f"  Post-match: Early={len(early_post):,}  Late={len(late_post):,}")
 
-df['timing'] = df.apply(slp_timing, axis=1)
 
-# ── Define cohorts ─────────────────────────────────────────────────────────────
-full    = df.copy()
-study   = df[
-    (df['slp_outpt_any_90d'] == 1) &
-    (df['days_to_death'].isna() | (df['days_to_death'] > 90)) &
-    (df['dschg_group'].isin(['home','hha']))
-].copy()
-g0 = study[study['timing'] == '0-14d']
-g1 = study[study['timing'] == '15-30d']
-g2 = study[study['timing'] == '31-90d']
+# ── SMD helpers ────────────────────────────────────────────────────────────────
+def _smd_raw(v1, v0):
+    v1 = np.array(v1, dtype=float); v1 = v1[~np.isnan(v1)]
+    v0 = np.array(v0, dtype=float); v0 = v0[~np.isnan(v0)]
+    if not len(v1) or not len(v0): return np.nan
+    pooled = np.sqrt((v1.std()**2 + v0.std()**2) / 2)
+    return abs(v1.mean() - v0.mean()) / pooled if pooled else 0.0
 
-cohorts = [
-    ('Full Cohort',   full),
-    ('Study Cohort',  study),
-    ('SLP 0-14d',     g0),
-    ('SLP 15-30d',    g1),
-    ('SLP 31-90d',    g2),
+def smd_cont(col):
+    return lambda e, l: _smd_raw(e[col].values, l[col].values)
+
+def smd_bin(col):
+    def _fn(e, l):
+        p1 = e[col].fillna(0).mean(); p0 = l[col].fillna(0).mean()
+        pooled = np.sqrt((p1*(1-p1) + p0*(1-p0)) / 2)
+        return abs(p1 - p0) / pooled if pooled else 0.0
+    return _fn
+
+def smd_cat(col, val):
+    def _fn(e, l):
+        p1 = (e[col] == val).mean(); p0 = (l[col] == val).mean()
+        pooled = np.sqrt((p1*(1-p1) + p0*(1-p0)) / 2)
+        return abs(p1 - p0) / pooled if pooled else 0.0
+    return _fn
+
+def fmt_smd(v):
+    try: return f'{float(v):.3f}' if not np.isnan(float(v)) else ''
+    except: return ''
+
+
+# ── Display formatters ─────────────────────────────────────────────────────────
+def fmt_mean_sd(col):
+    return lambda d: f"{d[col].mean():.1f} ({d[col].std():.1f})"
+
+def fmt_pct(col, val=None):
+    def _fn(d):
+        if val is not None:
+            n = int((d[col] == val).sum()); p = 100.0 * n / max(len(d), 1)
+        else:
+            n = int(d[col].fillna(0).sum()); p = 100.0 * n / max(len(d), 1)
+        return f"{n:,} ({p:.1f}%)"
+    return _fn
+
+def fmt_event(col, days=365):
+    def _fn(d):
+        n = int((d[col] <= days).sum()); p = 100.0 * n / max(len(d), 1)
+        return f"{n:,} ({p:.1f}%)"
+    return _fn
+
+
+# ── Row specification ──────────────────────────────────────────────────────────
+# (label, fmt_fn, smd_fn, indent)   smd_fn=None for section headers & outcome rows
+ROWS = [
+    ('DEMOGRAPHICS',                             None, None, False),
+    ('Age, mean (SD)',                           fmt_mean_sd('age_at_adm'),           smd_cont('age_at_adm'),        True),
+    ('Female, n (%)',                            fmt_pct('sex', 'Female'),             smd_cat('sex', 'Female'),      True),
+    ('Race: White, n (%)',                       fmt_pct('race', 'White'),             smd_cat('race', 'White'),      True),
+    ('Race: Black, n (%)',                       fmt_pct('race', 'Black'),             smd_cat('race', 'Black'),      True),
+    ('Race: Hispanic, n (%)',                    fmt_pct('race', 'Hispanic'),          smd_cat('race', 'Hispanic'),   True),
+
+    ('STROKE CHARACTERISTICS',                   None, None, False),
+    ('Ischemic, n (%)',                          fmt_pct('stroke_type', 'Ischemic'),   smd_cat('stroke_type','Ischemic'), True),
+    ('Intracerebral hemorrhage, n (%)',          fmt_pct('stroke_type', 'ICH'),        smd_cat('stroke_type','ICH'),      True),
+    ('Subarachnoid hemorrhage, n (%)',           fmt_pct('stroke_type', 'SAH'),        smd_cat('stroke_type','SAH'),      True),
+
+    ('HOSPITAL COURSE',                          None, None, False),
+    ('Index LOS, mean (SD) days',               fmt_mean_sd('index_los'),             smd_cont('index_los'),         True),
+    ('Mechanical ventilation, n (%)',            fmt_pct('mech_vent'),                 smd_bin('mech_vent'),          True),
+    ('Discharge to home (no HHA), n (%)',        fmt_pct('dschg_group', 'Home'),       smd_cat('dschg_group','Home'),     True),
+    ('Discharge with home health agency, n (%)', fmt_pct('dschg_group', 'Home+HHA'),  smd_cat('dschg_group','Home+HHA'), True),
+    ('Admission year, mean (SD)',                fmt_mean_sd('adm_year'),              smd_cont('adm_year'),          True),
+
+    ('COMORBIDITIES',                            None, None, False),
+    ('van Walraven score, mean (SD)',            fmt_mean_sd('van_walraven_score'),    smd_cont('van_walraven_score'),True),
+    ('Atrial fibrillation, n (%)',               fmt_pct('afib'),                      smd_bin('afib'),               True),
+    ('Hypertension, n (%)',                      fmt_pct('hypertension'),              smd_bin('hypertension'),       True),
+    ('Dyslipidemia, n (%)',                      fmt_pct('dyslipid'),                  smd_bin('dyslipid'),           True),
+    ('Smoking, n (%)',                           fmt_pct('smoking'),                   smd_bin('smoking'),            True),
+    ('Prior stroke, n (%)',                      fmt_pct('prior_stroke'),              smd_bin('prior_stroke'),       True),
+    ('Dementia, n (%)',                          fmt_pct('dementia'),                  smd_bin('dementia'),           True),
+
+    ('GEOGRAPHY & SOCIOECONOMIC STATUS',         None, None, False),
+    ('Metro county, n (%)',                      fmt_pct('rucc_group', 'Metro'),       smd_cat('rucc_group','Metro'),    True),
+    ('Nonmetro county, n (%)',                   fmt_pct('rucc_group', 'Nonmetro'),    smd_cat('rucc_group','Nonmetro'), True),
+    ('Rural county, n (%)',                      fmt_pct('rucc_group', 'Rural'),       smd_cat('rucc_group','Rural'),    True),
+    ('Dual eligible (Medicare+Medicaid), n (%)', fmt_pct('dual_eligible'),             smd_bin('dual_eligible'),         True),
+
 ]
-print(f"  Full={len(full):,}  Study={len(study):,}  "
-      f"0-14d={len(g0):,}  15-30d={len(g1):,}  31-90d={len(g2):,}")
 
-# ── Helper ─────────────────────────────────────────────────────────────────────
-def fmt_mean_sd(s):   return f"{s.mean():.1f} ({s.std():.1f})"
-def fmt_pct(s, v=None):
-    p = 100.0*(s==v).mean() if v is not None else 100.0*s.mean()
-    return f"{p:.1f}%"
-def fmt_n(s):         return f"{len(s):,}"
+SECTION_LABELS = {r[0] for r in ROWS if r[1] is None}
 
-# ── Build rows ─────────────────────────────────────────────────────────────────
-rows = []
+# ── Compute all cell values ────────────────────────────────────────────────────
+# Columns (left to right):
+#   A: Characteristic
+#   B: Early Wks 1-4 (pre)    C: Late Wk 5+ (pre)    D: SMD (pre)
+#   E: Early Wks 1-4 (post)   F: Late Wk 5+ (post)   G: SMD (post)
 
-def section(title):
-    rows.append([title] + ['']*len(cohorts))
+table_rows = []
+for label, fmt_fn, smd_fn, indent in ROWS:
+    lbl = ('   ' if indent else '') + label
+    if fmt_fn is None:
+        table_rows.append((lbl, '', '', '', '', '', ''))
+    else:
+        def _get(fn, d):
+            try: return fn(d)
+            except: return '\u2014'
+        ep = _get(fmt_fn, early_pre)
+        lp = _get(fmt_fn, late_pre)
+        s1 = fmt_smd(smd_fn(early_pre, late_pre)) if smd_fn else ''
+        em = _get(fmt_fn, early_post)
+        lm = _get(fmt_fn, late_post)
+        s2 = fmt_smd(smd_fn(early_post, late_post)) if smd_fn else ''
+        table_rows.append((lbl, ep, lp, s1, em, lm, s2))
 
-def row(label, fn, indent=False):
-    r = [('  ' + label) if indent else label]
-    for _, c in cohorts:
-        try:    r.append(fn(c))
-        except: r.append('—')
-    rows.append(r)
+# ── Style constants ────────────────────────────────────────────────────────────
+C_SCARLET    = 'BA0C2F'
+C_DARK       = '70071C'
+C_SECTION_BG = 'F0D8DC'
+C_ALT_BG     = 'FDF5F6'
+C_GRAY       = 'A7B1B7'
+C_WHITE      = 'FFFFFF'
 
-headers = ['Characteristic'] + [f"{name}\n(N={fmt_n(c)})" for name, c in cohorts]
+def fill(hex_col): return PatternFill('solid', fgColor=hex_col)
+def font(bold=False, color='000000', size=10, italic=False):
+    return Font(bold=bold, color=color, size=size, italic=italic)
 
-section('DEMOGRAPHICS')
-row('Age, mean (SD)',             lambda c: fmt_mean_sd(c['age_at_adm']))
-row('Female, %',                  lambda c: fmt_pct(c['sex'], 'Female'))
+THIN  = Side(style='thin',   color='CCCCCC')
+MED   = Side(style='medium', color=C_DARK)
+THICK = Side(style='medium', color=C_SCARLET)
 
-section('STROKE TYPE')
-row('Ischemic, %',                lambda c: fmt_pct(c['stroke_type'], 'Ischemic'), indent=True)
-row('Intracerebral hemorrhage, %',lambda c: fmt_pct(c['stroke_type'], 'ICH'),      indent=True)
-row('Subarachnoid hemorrhage, %', lambda c: fmt_pct(c['stroke_type'], 'SAH'),      indent=True)
+def border(bottom=None, top=None, left=None, right=None):
+    return Border(bottom=bottom or Side(style=None),
+                  top=top       or Side(style=None),
+                  left=left     or Side(style=None),
+                  right=right   or Side(style=None))
 
-section('HOSPITAL COURSE')
-row('Index LOS, mean (SD) days',  lambda c: fmt_mean_sd(c['index_los']))
-row('Mechanical ventilation, %',  lambda c: fmt_pct(c['mech_vent']))
-row('Tracheostomy, %',            lambda c: fmt_pct(c['trach_placed']))
-row('PEG at admission, %',        lambda c: fmt_pct(c['peg_placed']))
-
-section('SWALLOWING / SPEECH')
-row('Dysphagia present on admission, %', lambda c: fmt_pct(c['dysphagia_poa']))
-row('Aspiration present on admission, %',lambda c: fmt_pct(c['aspiration_poa']))
-
-section('COMORBIDITIES')
-row('van Walraven score, mean (SD)', lambda c: fmt_mean_sd(c['van_walraven_score']))
-row('Prior stroke, %',             lambda c: fmt_pct(c['prior_stroke']))
-row('Dementia, %',                 lambda c: fmt_pct(c['dementia']))
-row('Atrial fibrillation, %',      lambda c: fmt_pct(c['afib']))
-row('Hypertension, %',             lambda c: fmt_pct(c['hypertension']))
-
-section('DISCHARGE DESTINATION')
-row('Home, %',                    lambda c: fmt_pct(c['dschg_group'], 'home'))
-row('Home health agency, %',      lambda c: fmt_pct(c['dschg_group'], 'hha'))
-row('SNF, %',                     lambda c: fmt_pct(c['dschg_group'], 'snf'))
-row('IRF, %',                     lambda c: fmt_pct(c['dschg_group'], 'irf'))
-
-df_table = pd.DataFrame(rows, columns=headers)
-
-# ── Write Excel ────────────────────────────────────────────────────────────────
+# ── Write workbook ─────────────────────────────────────────────────────────────
 print(f"Writing {OUT_PATH} ...")
-
-
-HEADER_FILL  = PatternFill('solid', fgColor='1F4E79')
-HEADER_FONT  = Font(bold=True, color='FFFFFF', size=10)
-SECTION_FILL = PatternFill('solid', fgColor='BDD7EE')
-SECTION_FONT = Font(bold=True, size=10, color='1F4E79')
-ALT_FILL     = PatternFill('solid', fgColor='EBF3FB')
-TITLE_FONT   = Font(bold=True, size=12, color='1F4E79')
-
-SECTION_LABELS = {
-    'DEMOGRAPHICS','STROKE TYPE','HOSPITAL COURSE',
-    'SWALLOWING / SPEECH','COMORBIDITIES','DISCHARGE DESTINATION'
-}
-
 wb = openpyxl.Workbook()
 ws = wb.active
 ws.title = 'Table1'
 
-ws.append(['Table 1: Cohort Characteristics'])
-ws['A1'].font = TITLE_FONT
-ws.append([])
+ws.append([])   # blank row
 
-header_row = ws.max_row + 1
-for ci, cn in enumerate(df_table.columns, 1):
-    cell = ws.cell(row=header_row, column=ci, value=cn)
-    cell.font      = HEADER_FONT
-    cell.fill      = HEADER_FILL
-    cell.alignment = Alignment(horizontal='center', wrap_text=True)
+# Row 1: Title
+ws.append(['Table 1. Cohort Characteristics Before and After Propensity Score Matching'])
+ws['A2'].font = font(bold=True, size=13, color=C_SCARLET)
+ws.merge_cells('A2:G2')
+ws['A2'].alignment = Alignment(horizontal='left')
+ws.row_dimensions[2].height = 20
 
+
+# Row 4: Group header (merged spans)
+# Cols: A=Characteristic, B-D=Before Matching, E-G=After Matching
+GRP_ROW = 4
+ws.cell(GRP_ROW, 1, '').font  = font(bold=True, size=10, color=C_WHITE)
+ws.cell(GRP_ROW, 1).fill                    = fill(C_SCARLET)
+ws.cell(GRP_ROW, 1).alignment               = Alignment(horizontal='center', vertical='center')
+
+ws.cell(GRP_ROW, 2, 'Before Matching').font  = font(bold=True, size=10, color=C_WHITE)
+ws.cell(GRP_ROW, 2).fill                     = fill(C_SCARLET)
+ws.cell(GRP_ROW, 2).alignment                = Alignment(horizontal='center', vertical='center')
+ws.merge_cells(f'B{GRP_ROW}:D{GRP_ROW}')
+
+ws.cell(GRP_ROW, 5, 'After Matching').font   = font(bold=True, size=10, color=C_WHITE)
+ws.cell(GRP_ROW, 5).fill                     = fill(C_SCARLET)
+ws.cell(GRP_ROW, 5).alignment                = Alignment(horizontal='center', vertical='center')
+ws.merge_cells(f'E{GRP_ROW}:G{GRP_ROW}')
+ws.row_dimensions[GRP_ROW].height = 18
+
+# Row 5: Column name headers
+COL_HDRS = ['', 'Early SLP', 'Late SLP', 'SMD',
+                 'Early SLP', 'Late SLP', 'SMD']
+HDR_ROW = 5
+for ci, h in enumerate(COL_HDRS, 1):
+    cell = ws.cell(HDR_ROW, ci, h)
+    cell.font      = font(bold=True, size=9, color=C_WHITE)
+    cell.fill      = fill(C_SCARLET) if ci in (1, 5, 6, 7) else fill(C_SCARLET)
+    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+ws.row_dimensions[HDR_ROW].height = 30
+
+# Row 6: Sample sizes
+N_ROW = 6
+N_VALS = ['', f'n = {len(early_pre):,}', f'n = {len(late_pre):,}', '',
+               f'n = {len(early_post):,}', f'n = {len(late_post):,}', '']
+for ci, v in enumerate(N_VALS, 1):
+    cell = ws.cell(N_ROW, ci, v)
+    cell.font      = font(bold=False, size=9, color=C_WHITE, italic=True)
+    cell.fill      = fill(C_SCARLET) if ci in (1, 5, 6, 7) else fill(C_SCARLET)
+    cell.alignment = Alignment(horizontal='center', vertical='center')
+    cell.border    = border(bottom=MED)
+ws.row_dimensions[N_ROW].height = 16
+
+# ── Data rows ──────────────────────────────────────────────────────────────────
 alt = 0
-for ri, row_data in enumerate(df_table.itertuples(index=False), header_row + 1):
-    char = row_data[0]
-    is_sec = char.strip() in SECTION_LABELS
-    if not is_sec: alt += 1
-    for ci, val in enumerate(row_data, 1):
-        cell = ws.cell(row=ri, column=ci, value=val)
+for row_vals in table_rows:
+    ri  = ws.max_row + 1
+    lbl = str(row_vals[0]).strip()
+    is_sec = lbl in SECTION_LABELS
+
+    if not is_sec:
+        alt += 1
+
+    for ci, val in enumerate(row_vals, 1):
+        cell = ws.cell(ri, ci, val)
+
         if is_sec:
-            cell.font = SECTION_FONT
-            cell.fill = SECTION_FILL
-        elif alt % 2 == 0:
-            cell.fill = ALT_FILL
+            cell.font = font(bold=True, size=10, color=C_DARK)
+            cell.fill = fill(C_SECTION_BG)
+            cell.border = border(top=Side(style='thin', color=C_DARK),
+                                 bottom=Side(style='thin', color=C_DARK))
+        else:
+            if alt % 2 == 0:
+                cell.fill = fill(C_ALT_BG)
+
+            # SMD columns: bold black = good balance (<0.10); muted gray = imbalanced (>=0.10)
+            if ci in (4, 7) and val:
+                try:
+                    v = float(val)
+                    cell.font = font(bold=True, size=10, color=C_SCARLET) if v < 0.10 \
+                                else font(size=10, italic=True, color='888888')
+                except (ValueError, TypeError):
+                    pass
+            else:
+                cell.font = font(size=10)
+
         cell.alignment = Alignment(
-            horizontal='left' if ci == 1 else 'center',
-            vertical='center', wrap_text=(ci == 1))
+            horizontal='left'   if ci == 1 else 'center',
+            vertical='center',
+            wrap_text=(ci == 1)
+        )
 
-ws.row_dimensions[header_row].height = 30
-ws.column_dimensions['A'].width = 38
-for i in range(2, len(cohorts) + 2):
-    ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 18
+    ws.row_dimensions[ri].height = 15
 
-ws.freeze_panes = f'B{header_row + 1}'
+# ── Column widths ──────────────────────────────────────────────────────────────
+ws.column_dimensions['A'].width = 40
+ws.column_dimensions['B'].width = 18
+ws.column_dimensions['C'].width = 18
+ws.column_dimensions['D'].width = 7
+ws.column_dimensions['E'].width = 18
+ws.column_dimensions['F'].width = 18
+ws.column_dimensions['G'].width = 7
+
+ws.freeze_panes = f'B{N_ROW + 1}'
+
+# ── Footnote ───────────────────────────────────────────────────────────────────
+fn_row = ws.max_row + 2
+ws.cell(fn_row, 1,
+    'Comparison: Early SLP (Weeks 1\u20134) vs Late SLP (Week 5+).'
+    'SMD = standardized mean difference; values \u22650.10 (bold red) indicate imbalance.'
+    'PSM: 1:1 greedy nearest-neighbor matching,'
+    'caliper = 0.2 \u00d7 SD(logit propensity score). '
+).font = font(italic=True, size=8, color='666666')
+ws.merge_cells(f'A{fn_row}:G{fn_row}')
+
 wb.save(str(OUT_PATH))
 print(f"Saved: {OUT_PATH}")

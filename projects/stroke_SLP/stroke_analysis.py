@@ -3,9 +3,8 @@ stroke_analysis.py
 
 Analysis of stroke + SLP timing outcomes on PSM-matched cohort.
 
-Two pairwise comparisons (each run on its own matched set):
-  Comparison A: 0-14d  vs 31-90d  (psm_matched_A = TRUE)
-  Comparison B: 15-30d vs 31-90d  (psm_matched_B = TRUE)
+Single comparison (1:1 PSM-matched):
+  Comparison A: Early (8-35d)  vs Late (36-90d)  (psm_matched_A = TRUE)
 
 Outputs per comparison (printed):
   1. OR tables for binary outcomes at 90d / 180d / 365d
@@ -21,7 +20,7 @@ Outputs per comparison (printed):
 
 Run after:
   stroke_propensity.sql  (builds stroke_propensity)
-  stroke_psm.py          (populates psm_matched_A/B in stroke_propensity)
+  stroke_psm.py          (populates psm_matched_A in stroke_propensity)
 """
 
 import os
@@ -43,8 +42,7 @@ MAX_FOLLOW = 365
 TIMEPOINTS = [90, 180, 365]
 
 COMPARISONS = [
-    ('A', '0-14d',  '31-90d', 'psm_matched_A'),
-    ('B', '15-30d', '31-90d', 'psm_matched_B'),
+    ('A', 'Early', 'Late', 'psm_matched_A'),
 ]
 
 
@@ -76,7 +74,6 @@ def load_cohort(con, match_col):
             o.days_to_death,
             o.days_to_readmit,
             o.n_readmissions_365d,
-            o.days_to_recur_stroke,
             o.days_to_aspiration,
             o.days_to_pneumonia,
             o.first_pneumonia_code,
@@ -109,14 +106,20 @@ def add_derived(df, treat_grp):
         MAX_FOLLOW
     )
 
+    # J18+J69 composite: aspiration-related pneumonia (unspecified + aspiration pneumonitis)
+    df['days_to_asp_related'] = np.where(
+        df['first_pneumonia_code'].isin(['J18', 'J69']),
+        df['days_to_pneumonia'],
+        np.nan
+    )
+
     for days, label in [(90,'90d'), (180,'180d'), (365,'365d')]:
-        df[f'died_{label}']      = (df['days_to_death'].notna()        & (df['days_to_death']        <= days)).astype(int)
-        df[f'readmit_{label}']   = (df['days_to_readmit'].notna()      & (df['days_to_readmit']      <= days)).astype(int)
-        df[f'recur_{label}']     = (df['days_to_recur_stroke'].notna() & (df['days_to_recur_stroke'] <= days)).astype(int)
-        df[f'asp_{label}']       = (df['days_to_aspiration'].notna()   & (df['days_to_aspiration']   <= days)).astype(int)
-        df[f'pna_{label}']       = (df['days_to_pneumonia'].notna()    & (df['days_to_pneumonia']    <= days)).astype(int)
-        df[f'dysphagia_{label}'] = (df['days_to_dysphagia'].notna()    & (df['days_to_dysphagia']    <= days)).astype(int)
-        df[f'gtube_{label}']     = (df['days_to_gtube'].notna()        & (df['days_to_gtube']        <= days)).astype(int)
+        df[f'died_{label}']        = (df['days_to_death'].notna()          & (df['days_to_death']          <= days)).astype(int)
+        df[f'readmit_{label}']     = (df['days_to_readmit'].notna()        & (df['days_to_readmit']        <= days)).astype(int)
+        df[f'asp_related_{label}'] = (df['days_to_asp_related'].notna()    & (df['days_to_asp_related']    <= days)).astype(int)
+        df[f'pna_{label}']         = (df['days_to_pneumonia'].notna()      & (df['days_to_pneumonia']      <= days)).astype(int)
+        df[f'dysphagia_{label}']   = (df['days_to_dysphagia'].notna()      & (df['days_to_dysphagia']      <= days)).astype(int)
+        df[f'gtube_{label}']       = (df['days_to_gtube'].notna()          & (df['days_to_gtube']          <= days)).astype(int)
 
     q1 = df['van_walraven_score'].quantile(1/3)
     q2 = df['van_walraven_score'].quantile(2/3)
@@ -211,8 +214,8 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
     outcomes_list = [
         ('Mortality',         'died_{lbl}',       'days_to_death',        TIMEPOINTS),
         ('Readmission',       'readmit_{lbl}',    'days_to_readmit',      TIMEPOINTS),
-        ('Aspiration PNA',    'asp_{lbl}',        'days_to_aspiration',   TIMEPOINTS),
-        ('All Pneumonia',     'pna_{lbl}',        'days_to_pneumonia',    TIMEPOINTS),
+        ('Aspiration-related PNA', 'asp_related_{lbl}', 'days_to_asp_related', TIMEPOINTS),
+        ('All Pneumonia',         'pna_{lbl}',         'days_to_pneumonia',   TIMEPOINTS),
         ('Dysphagia Dx',      'dysphagia_{lbl}',  'days_to_dysphagia',    TIMEPOINTS),
         ('G-tube',            'gtube_{lbl}',      'days_to_gtube',        TIMEPOINTS),
         ('SNF 30d',           'snf_30d',          'days_to_snf',          [None]),
@@ -239,8 +242,6 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
         ('Age < 75',           df[df['age_at_adm'] < 75]),
         ('Age 75-84',          df[(df['age_at_adm'] >= 75) & (df['age_at_adm'] < 85)]),
         ('Age 85+',            df[df['age_at_adm'] >= 85]),
-        ('Dysphagia POA',      df[df['dysphagia_poa'] == 1]),
-        ('No Dysphagia POA',   df[df['dysphagia_poa'] == 0]),
         ('Elix Low',           df[df['elix_grp'] == 'Low']),
         ('Elix Mid',           df[df['elix_grp'] == 'Mid']),
         ('Elix High',          df[df['elix_grp'] == 'High']),
@@ -266,18 +267,17 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
     print(f"  Person-time split at days_to_slp_outpt; trt=0 pre-SLP, trt=1/0 post-SLP")
     print(f"{'='*80}")
 
-    # trach_placed and aspiration_poa excluded: near-zero variance in home-discharged cohort
-    # causing NaN/Inf in Hessian and singular matrix errors
-    TV_COVARIATES = ['age_at_adm', 'van_walraven_score', 'dysphagia_poa',
-                     'mech_vent', 'peg_placed', 'index_los']
+    # POA confounders (dysphagia_poa, aspiration_poa, peg_placed, trach_placed) excluded
+    # from cohort entirely; only non-zero covariates used here
+    TV_COVARIATES = ['age_at_adm', 'van_walraven_score', 'index_los']
 
     # (label, primary_event_days_col, competing_event_days_col or None)
     # Non-mortality outcomes treat death as a competing event (censored).
     cox_tv_outcomes = [
-        ('All-cause mortality',  'days_to_death',        None),
-        ('Aspiration PNA',       'days_to_aspiration',   'days_to_death'),
-        ('All Pneumonia',        'days_to_pneumonia',    'days_to_death'),
-        ('Dysphagia Dx',         'days_to_dysphagia',    'days_to_death'),
+        ('All-cause mortality',       'days_to_death',        None),
+        ('Aspiration-related PNA',   'days_to_asp_related',  'days_to_death'),
+        ('All Pneumonia',            'days_to_pneumonia',    'days_to_death'),
+        ('Dysphagia Dx',             'days_to_dysphagia',    'days_to_death'),
     ]
 
     def build_tv_df(df, event_col, competing_col):
@@ -352,9 +352,9 @@ def run_analysis(df, comp_label, treat_grp, ctrl_grp):
     print(f"{'='*80}")
 
     km_outcomes = [
-        ('All-cause mortality',  'died_365d',       'censor_days',         True),
-        ('Aspiration PNA',       'asp_365d',         'days_to_aspiration',  False),
-        ('All Pneumonia',        'pna_365d',         'days_to_pneumonia',   False),
+        ('All-cause mortality',     'died_365d',          'censor_days',          True),
+        ('Aspiration-related PNA', 'asp_related_365d',   'days_to_asp_related',  False),
+        ('All Pneumonia',          'pna_365d',           'days_to_pneumonia',    False),
         ('Dysphagia Dx',         'dysphagia_365d',   'days_to_dysphagia',   False),
         ('G-tube',               'gtube_365d',       'days_to_gtube',       False),
     ]

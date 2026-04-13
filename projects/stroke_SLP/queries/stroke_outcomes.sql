@@ -11,11 +11,10 @@
 -- Outcomes:
 --   Mortality          — from MBSF DEATH_DT
 --   All-cause readmit  — any inpatient admission after index discharge
---   Recurrent stroke   — inpatient admission with I60/I61/I63/I64 as principal dx
 --   Aspiration PNA     — J690, J698 (inp + out + car only; SNF/HHA excluded)  [primary]
 --   All Pneumonia      — J09–J18, J690, J698 (inp + out + car only; SNF/HHA excluded)  [secondary; breakdown by 3-char code]
 --   Dysphagia          — LEFT(code,4)='R131' (inp + out + car)
---   G-tube             — Z931, CPT 43246/49440, HCPCS B4087/B4088, PCS 0DH63UZ/0DH60UZ
+--   G-tube             — Z931, CPT 43246/43750/44372/44500/49440/49441/74350/74355, HCPCS B4034-B4036/B4081-B4088, PCS 0DH63UZ/0DH60UZ
 --   SNF placement      — any SNF admission within 30d of discharge
 --   Home health use    — any HHA claim within 90d of discharge
 --   Total Medicare cost — sum of payments across all claim types in 365d
@@ -80,7 +79,9 @@ WHERE TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') > c.index_dschg_date
   AND TRY_STRPTIME(cl.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY
   AND (LEFT(cl.LINE_ICD_DGNS_CD, 4) IN ('R131', 'Z931', 'J690', 'J698')
     OR LEFT(cl.LINE_ICD_DGNS_CD, 3) IN ('J09','J10','J11','J12','J13','J14','J15','J16','J17','J18')
-    OR cl.HCPCS_CD IN ('43246', '49440', 'B4087', 'B4088'));
+    OR cl.HCPCS_CD IN ('43246','43750','44372','44500','49440','49441','74350','74355','B4087','B4088')
+    OR cl.HCPCS_CD BETWEEN 'B4034' AND 'B4036'
+    OR cl.HCPCS_CD BETWEEN 'B4081' AND 'B4088');
 
 -- Outpatient revenue center (G-tube HCPCS)
 CREATE OR REPLACE TEMP TABLE _rev AS
@@ -94,7 +95,9 @@ FROM stroke_cohort c
 JOIN out_revenuek_all r ON r.DSYSRTKY = c.DSYSRTKY
 WHERE TRY_STRPTIME(r.THRU_DT, '%Y%m%d') > c.index_dschg_date
   AND TRY_STRPTIME(r.THRU_DT, '%Y%m%d') <= c.index_dschg_date + INTERVAL 365 DAY
-  AND r.HCPCS_CD IN ('43246', '49440', 'B4087', 'B4088');
+  AND (   r.HCPCS_CD IN ('43246','43750','44372','44500','49440','49441','74350','74355','B4087','B4088')
+       OR r.HCPCS_CD BETWEEN 'B4034' AND 'B4036'
+       OR r.HCPCS_CD BETWEEN 'B4081' AND 'B4088');
 
 -- SNF (skilled nursing facility placement within 30d)
 CREATE OR REPLACE TEMP TABLE _snf AS
@@ -121,15 +124,6 @@ WHERE TRY_STRPTIME(h.THRU_DT, '%Y%m%d') > c.index_dschg_date
 GROUP BY c.DSYSRTKY;
 
 -- ── STEP 2: Outcome lookups on small temp tables ──────────────────────────────
-
--- Recurrent stroke (inpatient, principal dx)
-CREATE OR REPLACE TEMP TABLE _recur_stroke AS
-SELECT
-    DSYSRTKY,
-    MIN(adm_date) AS first_recur_stroke_date
-FROM _inp
-WHERE LEFT(PRNCPAL_DGNS_CD, 3) IN ('I60', 'I61', 'I63', 'I64')
-GROUP BY DSYSRTKY;
 
 -- All-cause readmission
 CREATE OR REPLACE TEMP TABLE _readmit AS
@@ -242,11 +236,15 @@ SELECT DSYSRTKY, MIN(thru_date) AS first_gtube_date FROM (
     UNION ALL
     -- Carrier CPT/HCPCS
     SELECT DSYSRTKY, thru_date FROM _car
-    WHERE HCPCS_CD IN ('43246', '49440', 'B4087', 'B4088')
+    WHERE (   HCPCS_CD IN ('43246','43750','44372','44500','49440','49441','74350','74355','B4087','B4088')
+           OR HCPCS_CD BETWEEN 'B4034' AND 'B4036'
+           OR HCPCS_CD BETWEEN 'B4081' AND 'B4088')
     UNION ALL
     -- Revenue center HCPCS
     SELECT DSYSRTKY, thru_date FROM _rev
-    WHERE HCPCS_CD IN ('43246', '49440', 'B4087', 'B4088')
+    WHERE (   HCPCS_CD IN ('43246','43750','44372','44500','49440','49441','74350','74355','B4087','B4088')
+           OR HCPCS_CD BETWEEN 'B4034' AND 'B4036'
+           OR HCPCS_CD BETWEEN 'B4081' AND 'B4088')
 ) GROUP BY DSYSRTKY;
 
 -- Pre-stroke tube: any tube placement or supply claim in 730 days before index admission
@@ -339,10 +337,6 @@ SELECT
     DATEDIFF('day', c.index_dschg_date, ra.first_readmit_date) AS days_to_readmit,
     COALESCE(ra.n_readmissions_365d, 0) AS n_readmissions_365d,
 
-    -- Recurrent stroke
-    rs.first_recur_stroke_date,
-    DATEDIFF('day', c.index_dschg_date, rs.first_recur_stroke_date) AS days_to_recur_stroke,
-
     -- Aspiration pneumonia
     ap.first_aspiration_date,
     DATEDIFF('day', c.index_dschg_date, ap.first_aspiration_date)   AS days_to_aspiration,
@@ -384,7 +378,6 @@ SELECT
 FROM stroke_cohort c
 LEFT JOIN _death         d   ON d.DSYSRTKY  = c.DSYSRTKY
 LEFT JOIN _readmit       ra  ON ra.DSYSRTKY = c.DSYSRTKY
-LEFT JOIN _recur_stroke  rs  ON rs.DSYSRTKY = c.DSYSRTKY
 LEFT JOIN _aspiration    ap  ON ap.DSYSRTKY = c.DSYSRTKY
 LEFT JOIN _pneumonia_all pn  ON pn.DSYSRTKY = c.DSYSRTKY
 LEFT JOIN _dysphagia     dy  ON dy.DSYSRTKY = c.DSYSRTKY
@@ -403,9 +396,6 @@ SELECT
     SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <=  90 THEN 1 ELSE 0 END) AS readmit_90d,
     SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <= 180 THEN 1 ELSE 0 END) AS readmit_180d,
     SUM(CASE WHEN days_to_readmit IS NOT NULL AND days_to_readmit <= 365 THEN 1 ELSE 0 END) AS readmit_365d,
-    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <=  90 THEN 1 ELSE 0 END) AS recur_90d,
-    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <= 180 THEN 1 ELSE 0 END) AS recur_180d,
-    SUM(CASE WHEN days_to_recur_stroke IS NOT NULL AND days_to_recur_stroke <= 365 THEN 1 ELSE 0 END) AS recur_365d,
     SUM(snf_30d::INT)                                                       AS snf_30d,
     SUM(hha_90d::INT)                                                       AS hha_90d,
     ROUND(AVG(total_pmt_365d), 0)                                          AS mean_cost_365d

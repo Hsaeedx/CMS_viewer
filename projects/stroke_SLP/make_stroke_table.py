@@ -1,25 +1,21 @@
 """
 make_stroke_table.py
 
-Exports stroke + SLP timing analysis results to a formatted Excel workbook:
-  F:\CMS\projects\stroke_SLP\stroke_slp_tables.xlsx
+Exports stroke + SLP timing analysis results to a formatted Excel workbook.
 
-Two pairwise comparisons:
-  Comparison A: 0-14d  vs 31-90d
-  Comparison B: 15-30d vs 31-90d
+Single comparison:
+  Comparison A: Early (8-35d)  vs Late (36-90d)
 
 Sheets:
   Table1_Cohort        — Cohort characteristics by timing group (unmatched)
   Table2_Balance_A     — Covariate balance comparison A (pre/post SMDs)
-  Table2_Balance_B     — Covariate balance comparison B (pre/post SMDs)
   Table3_OR_A          — OR table: all outcomes, matched comparison A
-  Table3_OR_B          — OR table: all outcomes, matched comparison B
-  Table4_ByStrokeType_A / _B  — OR stratified by stroke type
-  Table5_ByAge_A / _B         — OR stratified by age group
-  Table5b_ByDischg_A / _B     — OR stratified by discharge disposition (Home / Home+HHA / SNF / IRF / LTACH)
-  Table6_CoxPH_A / _B        — Cox HR (mortality, aspiration, dysphagia)
-  Table7_Costs_A / _B        — Medicare cost analysis
-  Table8_KM_A / _B           — KM survival / cumulative incidence
+  Table4_ByStrokeType_A  — OR stratified by stroke type
+  Table5_ByAge_A         — OR stratified by age group
+  Table5b_ByVW_A         — OR stratified by van Walraven comorbidity tertile
+  Table6_CoxPH_A         — Cox HR (mortality, aspiration, dysphagia)
+  Table7_Costs_A         — Medicare cost analysis
+  Table8_KM_A            — KM survival / cumulative incidence
 """
 
 import os
@@ -38,25 +34,24 @@ from lifelines.statistics import logrank_test
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
-_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP" / "output_files"
 DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
-OUT_PATH = _out_dir / "stroke_slp_tables.xlsx"
+OUT_PATH = _out_dir / "Table2.xlsx"
 
 MAX_FOLLOW = 365
 TIMEPOINTS = [90, 180, 365]
 
 COMPARISONS = [
-    ('A', '0-14d',  '31-90d', 'psm_matched_A'),
-    ('B', '15-30d', '31-90d', 'psm_matched_B'),
+    ('A', 'Early', 'Late', 'psm_matched_A'),
 ]
 
-TIMING_ORDER = ['0-14d', '15-30d', '31-90d', 'No SLP']
+TIMING_ORDER = ['Early', 'Late', 'No SLP']
 
 # ── Style helpers ──────────────────────────────────────────────────────────────
 
-HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
-SUBHDR_FILL = PatternFill("solid", fgColor="2E75B6")
-ALT_FILL    = PatternFill("solid", fgColor="D6E4F0")
+HEADER_FILL = PatternFill("solid", fgColor="70071c")
+SUBHDR_FILL = PatternFill("solid", fgColor="ba0c2f")
+ALT_FILL    = PatternFill("solid", fgColor="fdf5f6")
 BOLD        = Font(bold=True)
 WHITE_BOLD  = Font(bold=True, color="FFFFFF")
 CENTER      = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -92,18 +87,13 @@ def load_full(con):
             p.DSYSRTKY,
             p.slp_timing_group,
             p.psm_matched_A,
-            p.psm_matched_B,
             p.age_at_adm,
             p.sex,
             p.race,
             p.stroke_type,
             p.adm_year,
             p.index_los,
-            p.dysphagia_poa,
-            p.aspiration_poa,
             p.mech_vent,
-            p.peg_placed,
-            p.trach_placed,
             p.prior_stroke,
             p.van_walraven_score,
             p.afib,
@@ -126,11 +116,7 @@ def load_matched(con, match_col):
             p.stroke_type,
             p.adm_year,
             p.index_los,
-            p.dysphagia_poa,
-            p.aspiration_poa,
             p.mech_vent,
-            p.peg_placed,
-            p.trach_placed,
             p.prior_stroke,
             p.van_walraven_score,
             p.afib,
@@ -138,7 +124,6 @@ def load_matched(con, match_col):
             o.days_to_death,
             o.days_to_readmit,
             o.n_readmissions_365d,
-            o.days_to_recur_stroke,
             o.days_to_aspiration,
             o.days_to_dysphagia,
             o.days_to_gtube,
@@ -169,7 +154,6 @@ def add_derived(df, treat_grp):
     for days, lbl in [(90,'90d'),(180,'180d'),(365,'365d')]:
         df[f'died_{lbl}']      = (df['days_to_death'].notna()        & (df['days_to_death']        <= days)).astype(int)
         df[f'readmit_{lbl}']   = (df['days_to_readmit'].notna()      & (df['days_to_readmit']      <= days)).astype(int)
-        df[f'recur_{lbl}']     = (df['days_to_recur_stroke'].notna() & (df['days_to_recur_stroke'] <= days)).astype(int)
         df[f'asp_{lbl}']       = (df['days_to_aspiration'].notna()   & (df['days_to_aspiration']   <= days)).astype(int)
         df[f'dysphagia_{lbl}'] = (df['days_to_dysphagia'].notna()    & (df['days_to_dysphagia']    <= days)).astype(int)
         df[f'gtube_{lbl}']     = (df['days_to_gtube'].notna()        & (df['days_to_gtube']        <= days)).astype(int)
@@ -272,11 +256,7 @@ BALANCE_VARS = [
     ('age_at_adm',        'Age at admission'),
     ('index_los',         'Index LOS'),
     ('van_walraven_score','van Walraven score'),
-    ('dysphagia_poa',     'Dysphagia POA'),
-    ('aspiration_poa',    'Aspiration POA'),
     ('mech_vent',         'Mechanical ventilation'),
-    ('peg_placed',        'PEG placed'),
-    ('trach_placed',      'Tracheostomy'),
     ('prior_stroke',      'Prior stroke'),
     ('afib',              'Atrial fibrillation'),
     ('hypertension',      'Hypertension'),
@@ -345,11 +325,7 @@ def write_table1(wb, full_df):
         ("Stroke — SAH, n (%)",       lambda s: _cat(s, 'stroke_type', 'SAH')),
         ("Index LOS, mean (SD)",      lambda s: _mean_sd(s, 'index_los')),
         ("van Walraven, mean (SD)",   lambda s: _mean_sd(s, 'van_walraven_score')),
-        ("Dysphagia POA, n (%)",      lambda s: _pct(s, 'dysphagia_poa')),
-        ("Aspiration POA, n (%)",     lambda s: _pct(s, 'aspiration_poa')),
         ("Mech. ventilation, n (%)",  lambda s: _pct(s, 'mech_vent')),
-        ("PEG placed, n (%)",         lambda s: _pct(s, 'peg_placed')),
-        ("Tracheostomy, n (%)",       lambda s: _pct(s, 'trach_placed')),
         ("Prior stroke, n (%)",       lambda s: _pct(s, 'prior_stroke')),
         ("Atrial fibrillation, n (%)",lambda s: _pct(s, 'afib')),
         ("Hypertension, n (%)",       lambda s: _pct(s, 'hypertension')),
@@ -379,8 +355,7 @@ def write_cox_sheet(wb, sheet_name, matched_df):
         ("Dysphagia Dx (1yr)",        "dysphagia_365d",  "days_to_dysphagia"),
         ("G-tube (1yr)",              "gtube_365d",      "days_to_gtube"),
     ]
-    covariates = ['treated', 'age_at_adm', 'van_walraven_score', 'dysphagia_poa',
-                  'aspiration_poa', 'mech_vent', 'peg_placed', 'trach_placed', 'index_los']
+    covariates = ['treated', 'age_at_adm', 'van_walraven_score', 'mech_vent', 'index_los']
 
     for ri, (lbl_c, ev_col, dur_col) in enumerate(cox_outcomes, 2):
         sub = matched_df.copy()
@@ -557,14 +532,17 @@ for comp_label, treat_grp, ctrl_grp, match_col in COMPARISONS:
         rows_age.extend(build_or_rows(sub, f"Age {lbl}"))
     write_or_sheet(wb, f"Table5_ByAge_{comp_label}", rows_age, treat_grp, ctrl_grp)
 
-    # Discharge disposition strata — same-group-vs-same-group comparisons
-    # (matching was exact on dschg_group so these subsets are internally balanced)
-    rows_dschg = []
-    for grp in ['Home', 'Home+HHA', 'SNF', 'IRF', 'LTACH']:
-        sub = matched_df[matched_df['dschg_group'] == grp]
-        if len(sub) > 20:
-            rows_dschg.extend(build_or_rows(sub, grp))
-    write_or_sheet(wb, f"Table5b_ByDischg_{comp_label}", rows_dschg, treat_grp, ctrl_grp)
+    # Van Walraven comorbidity tertile strata
+    q1 = matched_df['van_walraven_score'].quantile(1/3)
+    q2 = matched_df['van_walraven_score'].quantile(2/3)
+    rows_vw = []
+    for lbl, sub in [
+        (f'Low (VW \u2264 {q1:.0f})',   matched_df[matched_df['van_walraven_score'] <= q1]),
+        (f'Mid (VW {q1:.0f}\u2013{q2:.0f})', matched_df[(matched_df['van_walraven_score'] > q1) & (matched_df['van_walraven_score'] <= q2)]),
+        (f'High (VW > {q2:.0f})',  matched_df[matched_df['van_walraven_score'] > q2]),
+    ]:
+        rows_vw.extend(build_or_rows(sub, lbl))
+    write_or_sheet(wb, f"Table5b_ByVW_{comp_label}", rows_vw, treat_grp, ctrl_grp)
 
     print(f"  Building Cox PH sheet ({comp_label}) ...")
     write_cox_sheet(wb, f"Table6_CoxPH_{comp_label}", matched_df)

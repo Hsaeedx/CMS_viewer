@@ -1,11 +1,13 @@
 """
 make_gradient_elix.py
 
-1. dose_response_gradient.png — HR by SLP timing group showing dose-response
-2. elix_stratified_results.xlsx — Cox PH stratified by Elixhauser (van Walraven) quartile
+1. Supp_Figure1.png — HR comparison: Early (8-35d) vs Late (36-90d ref) across 3 outcomes.
+   Single PSM comparison, all three primary outcomes.
+
+2. Supp_Table1.xlsx — TV Cox HRs stratified by van Walraven quartile.
+   Within each quartile, run TV Cox on the PSM-matched comparison A cohort.
 """
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,267 +16,219 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 import duckdb
 import numpy as np
 import pandas as pd
-from lifelines import CoxPHFitter
+from lifelines import CoxTimeVaryingFitter
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-_out_dir      = Path(os.getenv("project_paths", ".")) / "stroke_SLP"
+_out_dir      = Path(os.getenv("project_paths", ".")) / "stroke_SLP" / "output_files"
 _out_dir.mkdir(parents=True, exist_ok=True)
 DB_PATH       = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
-GRADIENT_PATH = _out_dir / "dose_response_gradient.png"
-ELIX_PATH     = _out_dir / "elix_stratified_results.xlsx"
-LANDMARK      = 90
-MAX_FOLLOW_LM = 1795
+GRADIENT_PATH = _out_dir / "Supp_Figure1.png"
+ELIX_PATH     = _out_dir / "Supp_Table1.xlsx"
+
+MAX_FOLLOW = 365
+TV_COVARIATES = ['age_at_adm', 'van_walraven_score', 'index_los']
+
+COMPARISONS = [
+    ('A', 'Early', 'Late', 'psm_matched_A'),
+]
+
+# (label, event_col, competing_col, exclude_peg)
+OUTCOMES = [
+    ('Aspiration-related PNA', 'days_to_asp_related', 'days_to_death', False),
+    ('PEG/G-tube',             'days_to_gtube',        'days_to_death', True),
+    ('Mortality',              'days_to_death',         None,            False),
+]
 
 # ── Load & filter ─────────────────────────────────────────────────────────────
 print("Loading data...")
 con = duckdb.connect(str(DB_PATH), read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
-df = con.execute("""
-    SELECT p.DSYSRTKY, p.age_at_adm, p.sex, p.stroke_type,
-           p.index_los, p.mech_vent, p.peg_placed, p.trach_placed,
-           p.dschg_status, p.dysphagia_poa, p.aspiration_poa,
-           p.prior_stroke, p.dementia, p.van_walraven_score,
-           p.slp_outpt_any_90d, p.days_to_slp_outpt,
-           o.days_to_death, o.days_to_aspiration,
+df_all = con.execute("""
+    SELECT p.DSYSRTKY, p.slp_timing_group, p.days_to_slp_outpt,
+           p.age_at_adm, p.index_los, p.van_walraven_score,
+           p.peg_placed, p.psm_matched_A,
+           o.days_to_death, o.days_to_pneumonia, o.first_pneumonia_code,
            o.days_to_gtube, o.pre_stroke_tube
     FROM stroke_propensity p
     JOIN stroke_outcomes o ON o.DSYSRTKY = p.DSYSRTKY
 """).df()
 con.close()
-print(f"  Loaded {len(df):,} rows")
+print(f"  Loaded {len(df_all):,} rows")
 
-lm = df[df['days_to_death'].isna() | (df['days_to_death'] > LANDMARK)].copy()
-lm_slp = lm[lm['slp_outpt_any_90d'] == 1].copy()
-
-def slp_group(d):
-    if pd.isna(d): return None
-    if d <= 14:    return 'SLP 0-14d'
-    if d <= 30:    return 'SLP 15-30d'
-    return 'SLP 31-90d'
-
-lm_slp['timing_group'] = lm_slp['days_to_slp_outpt'].apply(slp_group)
-
-def map_dschg(c):
-    if pd.isna(c): return 'home'
-    c = str(c).strip()
-    if c in ('01','08'): return 'home'
-    if c == '06':        return 'hha'
-    if c in ('03','61'): return 'snf'
-    if c == '62':        return 'irf'
-    return 'other'
-
-lm_slp['dschg_group'] = lm_slp['dschg_status'].apply(map_dschg)
-lm_slp = lm_slp[lm_slp['dschg_group'].isin(['home','hha'])].copy()
-print(f"  After home/HHA filter: {len(lm_slp):,}")
-
-# Landmark-shifted times
-for col in ['days_to_death','days_to_aspiration','days_to_gtube']:
-    lm_slp[col] = lm_slp[col].astype('float64')
-    lm_slp[f'{col}_lm'] = np.where(
-        lm_slp[col].notna() & (lm_slp[col] > LANDMARK),
-        (lm_slp[col] - LANDMARK).clip(lower=0.5), np.nan)
-
-lm_slp['censor_lm'] = np.where(
-    lm_slp['days_to_death_lm'].notna(),
-    lm_slp['days_to_death_lm'].clip(upper=MAX_FOLLOW_LM), MAX_FOLLOW_LM)
-
-lm_slp['died_lm']  = lm_slp['days_to_death_lm'].notna().astype(int)
-lm_slp['asp_lm']   = lm_slp['days_to_aspiration_lm'].notna().astype(int)
-lm_slp['gtube_lm'] = lm_slp['days_to_gtube_lm'].notna().astype(int)
-
-lm_slp['days_to_aspiration_lm_filled'] = (
-    lm_slp['days_to_aspiration_lm'].fillna(lm_slp['censor_lm']).clip(lower=0.5))
-lm_slp['days_to_gtube_lm_filled'] = (
-    lm_slp['days_to_gtube_lm'].fillna(lm_slp['censor_lm']).clip(lower=0.5))
-
-# Covariates
-lm_slp['slp_15_30d'] = (lm_slp['timing_group'] == 'SLP 15-30d').astype(int)
-lm_slp['slp_31_90d'] = (lm_slp['timing_group'] == 'SLP 31-90d').astype(int)
-# Ordinal trend variable: 1=0-14d, 2=15-30d, 3=31-90d
-lm_slp['slp_ordinal'] = lm_slp['timing_group'].map(
-    {'SLP 0-14d': 1, 'SLP 15-30d': 2, 'SLP 31-90d': 3})
-
-dschg_d  = pd.get_dummies(lm_slp['dschg_group'], prefix='dschg', drop_first=True)
-sex_d    = pd.get_dummies(lm_slp['sex'],          prefix='sex',   drop_first=True)
-stroke_d = pd.get_dummies(lm_slp['stroke_type'],  prefix='stroke',drop_first=True)
-lm_slp   = pd.concat([lm_slp, dschg_d, sex_d, stroke_d], axis=1)
-
-_cands = (['slp_15_30d','slp_31_90d',
-           'age_at_adm','van_walraven_score','index_los',
-           'mech_vent','trach_placed','prior_stroke','dementia',
-           'dysphagia_poa','aspiration_poa']
-          + list(dschg_d.columns) + list(sex_d.columns) + list(stroke_d.columns))
-COVS = [c for c in _cands if c in lm_slp.columns and lm_slp[c].std() > 0.05]
-
-# Trend covariates (replace slp_15_30d/slp_31_90d with ordinal)
-COVS_TREND = ['slp_ordinal'] + [c for c in COVS
-                                  if c not in ('slp_15_30d','slp_31_90d')]
-
-MODELS = [
-    ('Aspiration PNA', 'asp_lm',   'days_to_aspiration_lm_filled', False, 0.0),
-    ('PEG/G-tube',     'gtube_lm', 'days_to_gtube_lm_filled',      True,  0.1),
-    ('Mortality',      'died_lm',  'censor_lm',                    False, 0.0),
-]
+# J18 + J69 composite → aspiration-related PNA
+import numpy as _np
+df_all['days_to_asp_related'] = _np.where(
+    df_all['first_pneumonia_code'].isin(['J18', 'J69']),
+    df_all['days_to_pneumonia'], _np.nan
+)
 
 
-# ── Helper: run one Cox model, return HR rows ──────────────────────────────────
-def run_cox(sub, dur_col, ev_col, cov_list, pen, terms):
-    """Returns dict {term: (hr, lo, hi, p)} or None on failure."""
-    cox_df = sub[[dur_col, ev_col] + cov_list].rename(
-        columns={dur_col: 'duration', ev_col: 'event'}).dropna()
-    if cox_df['event'].sum() < 10:
-        return None, len(cox_df), int(cox_df['event'].sum())
+# ── TV Cox helpers ─────────────────────────────────────────────────────────────
+def build_tv_df(df, event_col, competing_col, treat_grp):
+    records = []
+    for _, row in df.iterrows():
+        slp_day  = float(row['days_to_slp_outpt'])
+        ev_day   = row[event_col]
+        comp_day = (row[competing_col]
+                    if competing_col and pd.notna(row[competing_col]) else np.nan)
+
+        candidates = [float(MAX_FOLLOW)]
+        if pd.notna(ev_day):   candidates.append(float(ev_day))
+        if pd.notna(comp_day): candidates.append(float(comp_day))
+        end_time = min(candidates)
+
+        final_event = int(
+            pd.notna(ev_day)
+            and float(ev_day) <= MAX_FOLLOW
+            and float(ev_day) == end_time
+        )
+        group_flag = 1 if row['slp_timing_group'] == treat_grp else 0
+        base = {col: float(row[col]) if pd.notna(row[col]) else 0.0
+                for col in TV_COVARIATES}
+
+        if end_time <= slp_day:
+            records.append({'id': row['DSYSRTKY'], 'start': 0.0,
+                            'stop': max(end_time, 0.5),
+                            'trt': 0, 'event': final_event, **base})
+        else:
+            records.append({'id': row['DSYSRTKY'], 'start': 0.0,
+                            'stop': slp_day, 'trt': 0, 'event': 0, **base})
+            records.append({'id': row['DSYSRTKY'], 'start': slp_day,
+                            'stop': max(end_time, slp_day + 0.5),
+                            'trt': group_flag, 'event': final_event, **base})
+    return pd.DataFrame(records)
+
+
+def run_tv_cox(df, event_col, competing_col, treat_grp):
+    tv = build_tv_df(df, event_col, competing_col, treat_grp)
+    tv = tv.dropna(subset=TV_COVARIATES)
+    # Standardize continuous covariates to prevent exp overflow
+    for col in ['age_at_adm', 'van_walraven_score', 'index_los']:
+        if col in tv.columns:
+            sd = tv[col].std()
+            if sd > 0:
+                tv[col] = (tv[col] - tv[col].mean()) / sd
+    n_pts  = tv['id'].nunique()
+    n_evts = int(tv['event'].sum())
+    if n_evts < 10:
+        return None, n_pts, n_evts
     try:
-        cph = CoxPHFitter(penalizer=pen)
-        cph.fit(cox_df, duration_col='duration', event_col='event', show_progress=False)
-        out = {}
-        for t in terms:
-            if t not in cph.summary.index:
-                continue
-            r = cph.summary.loc[t]
-            out[t] = (np.exp(r['coef']),
-                      np.exp(r['coef lower 95%']),
-                      np.exp(r['coef upper 95%']),
-                      r['p'])
-        return out, len(cox_df), int(cox_df['event'].sum())
+        ctv = CoxTimeVaryingFitter()
+        ctv.fit(tv, id_col='id', start_col='start', stop_col='stop',
+                event_col='event', show_progress=False)
+        r    = ctv.summary.loc['trt']
+        hr   = np.exp(r['coef'])
+        lo95 = np.exp(r['coef lower 95%'])
+        hi95 = np.exp(r['coef upper 95%'])
+        p    = r['p']
+        return (hr, lo95, hi95, p), n_pts, n_evts
     except Exception as e:
-        print(f"    Cox error: {e}")
-        return None, 0, 0
+        print(f"    ERROR: {e}")
+        return None, n_pts, n_evts
+
+
+# ── Run all comparisons × outcomes ────────────────────────────────────────────
+print("\nRunning TV Cox models...")
+main_results = {}   # (comp_label, out_label) -> (hr, lo, hi, p) or None
+
+for comp_label, treat_grp, ctrl_grp, match_col in COMPARISONS:
+    df_comp = df_all[df_all[match_col] == True].copy()
+    print(f"\n  Comparison {comp_label}: {treat_grp} vs {ctrl_grp} (n={len(df_comp):,})")
+    for out_label, ev_col, comp_col, excl_peg in OUTCOMES:
+        sub = df_comp.copy()
+        if excl_peg:
+            sub = sub[(sub['peg_placed'] == 0) & (sub['pre_stroke_tube'].fillna(0) == 0)]
+        res, n, n_ev = run_tv_cox(sub, ev_col, comp_col, treat_grp)
+        main_results[(comp_label, out_label)] = res
+        tag = (f"HR={res[0]:.2f} [{res[1]:.2f}\u2013{res[2]:.2f}]"
+               if res else "failed")
+        print(f"    {out_label}: n={n:,} ev={n_ev:,}  {tag}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DOSE-RESPONSE GRADIENT
+# PRIMARY RESULTS FIGURE (Supp_Figure1) — single comparison, 3 outcomes
 # ═══════════════════════════════════════════════════════════════════════════════
-print("\nBuilding dose-response gradient...")
+print("\nBuilding primary results figure (Supp_Figure1)...")
 
-# Compute median days per group (for x-axis)
-med_days = lm_slp.groupby('timing_group')['days_to_slp_outpt'].median()
-X_DAYS = {
-    'SLP 0-14d':  med_days.get('SLP 0-14d',   7),
-    'SLP 15-30d': med_days.get('SLP 15-30d', 22),
-    'SLP 31-90d': med_days.get('SLP 31-90d', 52),
-}
-x_vals = [X_DAYS['SLP 0-14d'], X_DAYS['SLP 15-30d'], X_DAYS['SLP 31-90d']]
-print(f"  Median days: {X_DAYS}")
-
-# Collect HRs for gradient
-gradient_data = {}   # outcome -> {'x': [...], 'hr': [...], 'lo': [...], 'hi': [...], 'p_trend': p}
-
-for label, ev_col, dur_col, excl_peg, pen in MODELS:
-    sub = lm_slp.copy()
-    if excl_peg:
-        sub = sub[(sub['peg_placed'] == 0) & (sub['pre_stroke_tube'].fillna(0) == 0)]
-    cov_use = list(COVS)
-    if not excl_peg and 'peg_placed' not in cov_use:
-        cov_use = ['peg_placed'] + cov_use
-
-    # Main model (binary dummies) for HR at 15-30d and 31-90d
-    res, n, n_ev = run_cox(sub, dur_col, ev_col, cov_use, pen,
-                           ['slp_15_30d', 'slp_31_90d'])
-
-    # Trend model (ordinal)
-    cov_trend = ['slp_ordinal'] + [c for c in cov_use
-                                    if c not in ('slp_15_30d','slp_31_90d')]
-    res_trend, _, _ = run_cox(sub, dur_col, ev_col, cov_trend, pen, ['slp_ordinal'])
-
-    if res is None:
-        continue
-
-    hr_15, lo_15, hi_15, _ = res.get('slp_15_30d', (None,)*4)
-    hr_31, lo_31, hi_31, _ = res.get('slp_31_90d', (None,)*4)
-    p_trend = res_trend['slp_ordinal'][3] if (res_trend and 'slp_ordinal' in res_trend) else np.nan
-
-    gradient_data[label] = {
-        'x':       x_vals,
-        'hr':      [1.0,    hr_15,  hr_31],
-        'lo':      [np.nan, lo_15,  lo_31],
-        'hi':      [np.nan, hi_15,  hi_31],
-        'n':       n,
-        'events':  n_ev,
-        'p_trend': p_trend,
-    }
-    print(f"  {label}: HR 15-30d={hr_15:.2f}, HR 31-90d={hr_31:.2f}, p-trend={p_trend:.4f}")
-
-# ── Plot ──────────────────────────────────────────────────────────────────────
-OUTCOME_COLORS  = {
-    'Aspiration PNA': '#1F4E79',
-    'PEG/G-tube':     '#C55A11',
-    'Mortality':      '#375623',
+OUTCOME_COLORS = {
+    'Aspiration-related PNA': '#ba0c2f',
+    'PEG/G-tube':             '#70071c',
+    'Mortality':              '#a7b1b7',
 }
 OUTCOME_MARKERS = {
-    'Aspiration PNA': 'o',
-    'PEG/G-tube':     's',
-    'Mortality':      '^',
+    'Aspiration-related PNA': 'o',
+    'PEG/G-tube':             's',
+    'Mortality':              '^',
 }
 
-fig, ax = plt.subplots(figsize=(9, 6), facecolor='white')
+# Median days per group in matched cohort
+df_a = df_all[df_all['psm_matched_A'] == True].copy()
+med_days = df_a.groupby('slp_timing_group')['days_to_slp_outpt'].median()
+X_DAYS = {
+    'Early': float(med_days.get('Early', 21)),
+    'Late':  float(med_days.get('Late',  52)),
+}
+print(f"  Median days: {X_DAYS}")
+
+fig, ax = plt.subplots(figsize=(8, 5), facecolor='white')
 ax.set_facecolor('white')
+ax.axhline(1.0, color='#888888', lw=1.2, linestyle='--', zorder=1)
+ax.axhspan(0.95, 1.05, color='#EEEEEE', alpha=0.5, zorder=0)
 
-ax.axhline(1.0, color='#888888', lw=1.2, linestyle='--', zorder=1, label='_nolegend_')
-ax.axhspan(0.95, 1.05, color='#EEEEEE', alpha=0.5, zorder=0)  # band around null
+x_treat = X_DAYS['Early']
+x_ref   = X_DAYS['Late']
 
-for label, d in gradient_data.items():
-    col = OUTCOME_COLORS[label]
-    mkr = OUTCOME_MARKERS[label]
-    x   = d['x']
-    hr  = d['hr']
-    lo  = d['lo']
-    hi  = d['hi']
-    p_t = d['p_trend']
-    p_str = 'p-trend <0.0001' if p_t < 0.0001 else f'p-trend = {p_t:.4f}'
+for out_label, ev_col, comp_col, excl_peg in OUTCOMES:
+    col = OUTCOME_COLORS[out_label]
+    mkr = OUTCOME_MARKERS[out_label]
+    res = main_results.get(('A', out_label))
 
-    # Connecting line
-    ax.plot(x, hr, color=col, lw=2.0, zorder=3, alpha=0.85)
-
-    # CI bars (not for reference group)
-    for xi, hri, loi, hii in zip(x, hr, lo, hi):
-        if not np.isnan(loi):
-            ax.plot([xi, xi], [loi, hii], color=col, lw=1.4, zorder=3)
-            ax.plot([xi-0.5, xi+0.5], [loi, loi], color=col, lw=1.0, zorder=3)
-            ax.plot([xi-0.5, xi+0.5], [hii, hii], color=col, lw=1.0, zorder=3)
-
-    # Dots
-    ax.plot(x[0], hr[0], marker=mkr, color='white', markersize=10,
-            markeredgecolor=col, markeredgewidth=2.0, zorder=4)   # reference: open
-    for xi, hri in zip(x[1:], hr[1:]):
-        ax.plot(xi, hri, marker=mkr, color=col, markersize=10,
+    # connecting line
+    hr_ref = 1.0
+    hr_trt = res[0] if res else np.nan
+    if not np.isnan(hr_trt):
+        ax.plot([x_treat, x_ref], [hr_trt, hr_ref], color=col, lw=2.0, alpha=0.85, zorder=3)
+        # CI whiskers
+        lo, hi = res[1], res[2]
+        ax.plot([x_treat, x_treat], [lo, hi], color=col, lw=1.4, zorder=3)
+        ax.plot([x_treat - 0.8, x_treat + 0.8], [lo, lo], color=col, lw=1.0, zorder=3)
+        ax.plot([x_treat - 0.8, x_treat + 0.8], [hi, hi], color=col, lw=1.0, zorder=3)
+        ax.plot(x_treat, hr_trt, marker=mkr, color=col, markersize=10,
                 markeredgecolor='white', markeredgewidth=0.8, zorder=4)
-
-    # p-trend label at end of line
-    ax.text(x[-1] + 1.5, hr[-1],
-            f"{label}\n({p_str})",
+    # Reference: open marker
+    ax.plot(x_ref, hr_ref, marker=mkr, color='white', markersize=10,
+            markeredgecolor=col, markeredgewidth=2.0, zorder=4)
+    ax.text(x_ref + 1.5, hr_ref, out_label,
             va='center', ha='left', fontsize=9, color=col, fontweight='bold')
 
-# X axis: median days
-ax.set_xlim(0, 80)
-ax.set_xticks(x_vals)
+ax.set_xlim(0, 75)
+ax.set_xticks([x_treat, x_ref])
 ax.set_xticklabels([
-    f"SLP 0–14d\n(median {x_vals[0]:.0f}d)",
-    f"SLP 15–30d\n(median {x_vals[1]:.0f}d)",
-    f"SLP 31–90d\n(median {x_vals[2]:.0f}d)",
+    f"Early SLP\n(Weeks 1\u20134)",
+    f"Late SLP\n(Week 5+)\nREFERENCE",
 ], fontsize=10)
-ax.set_xlabel('Days from Discharge to First Outpatient SLP', fontsize=11, labelpad=8)
+ax.set_xlabel('Timing of First Outpatient SLP Visit (weeks post-discharge)', fontsize=11, labelpad=8)
 
 ax.set_yscale('log')
-ax.set_ylim(0.70, 2.5)
-ax.set_yticks([0.75, 1.0, 1.25, 1.5, 2.0])
-ax.set_yticklabels(['0.75','1.00','1.25','1.50','2.00'], fontsize=10)
-ax.set_ylabel('Adjusted Hazard Ratio (log scale)\nReference: SLP 0–14 days', fontsize=10.5)
+ax.set_ylim(0.50, 2.5)
+ax.set_yticks([0.5, 0.7, 1.0, 1.25, 1.5, 2.0])
+ax.set_yticklabels(['0.50', '0.70', '1.00', '1.25', '1.50', '2.00'], fontsize=10)
+ax.set_ylabel('Adjusted Hazard Ratio (log scale)\nReference: Late SLP, Week 5+ (PSM)', fontsize=10.5)
 
-# Reference group annotation
-ax.text(x_vals[0], 1.03, 'Reference\n(HR = 1.00)', ha='center', va='bottom',
+ax.text(x_ref, 1.03, 'HR = 1.00', ha='center', va='bottom',
         fontsize=8.5, color='#555555', fontstyle='italic')
 
+n_pairs = int(df_all['psm_matched_A'].sum()) // 2
 ax.set_title(
-    'Dose–Response Gradient: Later SLP Initiation and Worse Post-Stroke Outcomes\n'
-    'Home / HHA-discharged Medicare stroke patients  •  90-day landmark  •  N = 108,695',
-    fontsize=11, fontweight='bold', color='#1F4E79', pad=10)
+    'Early SLP (Weeks 1\u20134) vs Late SLP (Week 5+): Time-Varying Cox HRs by Outcome\n'
+    f'PSM-matched cohort  \u2022  {n_pairs:,} pairs  \u2022  Max follow-up 365 days',
+    fontsize=11, fontweight='bold', color='#70071c', pad=10)
 
-for sp in ['top','right']:
+for sp in ['top', 'right']:
     ax.spines[sp].set_visible(False)
 ax.spines['left'].set_color('#AAAAAA')
 ax.spines['bottom'].set_color('#AAAAAA')
@@ -291,90 +245,93 @@ print(f"Saved: {GRADIENT_PATH}")
 # ═══════════════════════════════════════════════════════════════════════════════
 print("\nBuilding Elixhauser stratified results...")
 
-vw = lm_slp['van_walraven_score']
+# Quartile boundaries from the full matched population (use comp A)
+df_a = df_all[df_all['psm_matched_A'] == True].copy()
+vw = df_a['van_walraven_score']
+_, bins = pd.qcut(vw, q=4, duplicates='drop', retbins=True, labels=False)
+n_bins = len(bins) - 1
+ql_labels = []
+for i in range(n_bins):
+    lo_b, hi_b = bins[i], bins[i + 1]
+    if i == 0:
+        ql_labels.append(f'Q{i+1}  (VW <= {hi_b:.0f})  -- Lowest comorbidity')
+    elif i == n_bins - 1:
+        ql_labels.append(f'Q{i+1}  (VW > {lo_b:.0f})  -- Highest comorbidity')
+    else:
+        ql_labels.append(f'Q{i+1}  (VW {lo_b:.0f}-{hi_b:.0f})')
 q1, q2, q3 = vw.quantile([0.25, 0.50, 0.75])
-ql_labels = [
-    f'Q1  (VW \u2264 {q1:.0f})  — Lowest comorbidity',
-    f'Q2  (VW {q1:.0f}\u2013{q2:.0f})',
-    f'Q3  (VW {q2:.0f}\u2013{q3:.0f})',
-    f'Q4  (VW > {q3:.0f})  — Highest comorbidity',
-]
 
-def vw_quartile(score):
-    if pd.isna(score): return None
-    if score <= q1: return ql_labels[0]
-    if score <= q2: return ql_labels[1]
-    if score <= q3: return ql_labels[2]
-    return ql_labels[3]
-
-lm_slp['vw_q'] = lm_slp['van_walraven_score'].apply(vw_quartile)
+# Assign quartile labels using same bin boundaries on both matched cohorts
+def assign_quartile(series):
+    return pd.cut(series, bins=bins, labels=False, include_lowest=True).map(
+        {i: lab for i, lab in enumerate(ql_labels)})
 
 elix_rows = []
-for qlab in ql_labels:
-    q_sub = lm_slp[lm_slp['vw_q'] == qlab]
-    n_q   = len(q_sub)
-    n_grp = {g: int((q_sub['timing_group']==g).sum())
-              for g in ['SLP 0-14d','SLP 15-30d','SLP 31-90d']}
-    print(f"  Q N={n_q:,}  {n_grp}")
+for comp_label, treat_grp, ctrl_grp, match_col in COMPARISONS:
+    df_comp = df_all[df_all[match_col] == True].copy()
+    df_comp['vw_q'] = assign_quartile(df_comp['van_walraven_score'])
 
-    for label, ev_col, dur_col, excl_peg, pen in MODELS:
-        sub = q_sub.copy()
-        if excl_peg:
-            sub = sub[(sub['peg_placed']==0) & (sub['pre_stroke_tube'].fillna(0)==0)]
-        cov_use = list(COVS)
-        if not excl_peg and 'peg_placed' not in cov_use:
-            cov_use = ['peg_placed'] + cov_use
+    for qlab in ql_labels:
+        q_sub = df_comp[df_comp['vw_q'] == qlab]
+        n_q   = len(q_sub)
+        n_grp = {g: int((q_sub['slp_timing_group'] == g).sum())
+                 for g in ['Early', 'Late']}
+        print(f"  {comp_label} {qlab}: N={n_q:,}  {n_grp}")
 
-        res, n, n_ev = run_cox(sub, dur_col, ev_col, cov_use, pen,
-                               ['slp_15_30d','slp_31_90d'])
+        for out_label, ev_col, comp_col, excl_peg in OUTCOMES:
+            sub = q_sub.copy()
+            if excl_peg:
+                sub = sub[(sub['peg_placed'] == 0) & (sub['pre_stroke_tube'].fillna(0) == 0)]
+            res, n, n_ev = run_tv_cox(sub, ev_col, comp_col, treat_grp)
 
-        for comp, tv in [('15-30d vs 0-14d','slp_15_30d'),
-                         ('31-90d vs 0-14d','slp_31_90d')]:
             base = {
+                'Comparison':        f"{treat_grp} vs {ctrl_grp} (ref)",
                 'Elixhauser Quartile': qlab,
-                'N in quartile': f"{n_q:,}",
-                'N (0-14d)': f"{n_grp['SLP 0-14d']:,}",
-                'N (15-30d)': f"{n_grp['SLP 15-30d']:,}",
-                'N (31-90d)': f"{n_grp['SLP 31-90d']:,}",
-                'Outcome': label,
-                'Comparison': comp,
-                'N in model': f"{n:,}",
-                'Events': f"{n_ev:,}",
+                'N in quartile':     f"{n_q:,}",
+                'N (treat)':         f"{n_grp.get(treat_grp, 0):,}",
+                'N (ref)':           f"{n_grp.get(ctrl_grp, 0):,}",
+                'Outcome':           out_label,
+                'N in model':        f"{n:,}",
+                'Events':            f"{n_ev:,}",
             }
-            if res is None or tv not in res:
+            if res is None:
                 elix_rows.append({**base, 'HR (95% CI)': 'Too few events', 'p-value': ''})
-                continue
-            hr, lo, hi, p = res[tv]
-            p_str = '<0.0001' if p < 0.0001 else f'{p:.4f}'
-            elix_rows.append({**base,
-                'HR (95% CI)': f"{hr:.2f}  [{lo:.2f}\u2013{hi:.2f}]",
-                'p-value':     p_str,
-            })
+            else:
+                hr, lo, hi, p = res
+                p_str = '<0.0001' if p < 0.0001 else f'{p:.4f}'
+                elix_rows.append({**base,
+                    'HR (95% CI)': f"{hr:.2f}  [{lo:.2f}\u2013{hi:.2f}]",
+                    'p-value':     p_str,
+                })
 
 df_elix = pd.DataFrame(elix_rows)
 
 # ── Write Excel ────────────────────────────────────────────────────────────────
-HEADER_FILL  = PatternFill('solid', fgColor='1F4E79')
-HEADER_FONT  = Font(bold=True, color='FFFFFF', size=10)
-QHDR_FILL   = PatternFill('solid', fgColor='2E5090')
-QHDR_FONT   = Font(bold=True, color='FFFFFF', size=10)
-OUT_FILL    = PatternFill('solid', fgColor='BDD7EE')
-OUT_FONT    = Font(bold=True, size=10, color='1F4E79')
-ALT_FILL    = PatternFill('solid', fgColor='EBF3FB')
-TITLE_FONT  = Font(bold=True, size=12, color='1F4E79')
-SIG_FONT    = Font(bold=True, size=10, color='C55A11')
+HEADER_FILL = PatternFill('solid', fgColor='70071c')
+HEADER_FONT = Font(bold=True, color='FFFFFF', size=10)
+COMP_FILL   = PatternFill('solid', fgColor='ba0c2f')
+COMP_FONT   = Font(bold=True, color='FFFFFF', size=10)
+QHDR_FILL   = PatternFill('solid', fgColor='e0c4ca')
+QHDR_FONT   = Font(bold=True, size=10, color='70071c')
+OUT_FILL    = PatternFill('solid', fgColor='fdf5f6')
+OUT_FONT    = Font(bold=True, size=10, color='ba0c2f')
+ALT_FILL    = PatternFill('solid', fgColor='f5f5f5')
+TITLE_FONT  = Font(bold=True, size=12, color='70071c')
+SIG_FONT    = Font(bold=True, size=10, color='ba0c2f')
 
-DISPLAY_COLS = ['Elixhauser Quartile', 'Outcome', 'Comparison',
-                'N in quartile', 'N (0-14d)', 'N (15-30d)', 'N (31-90d)',
+DISPLAY_COLS = ['Comparison', 'Elixhauser Quartile', 'Outcome',
+                'N in quartile', 'N (treat)', 'N (ref)',
                 'N in model', 'Events', 'HR (95% CI)', 'p-value']
 
 wb = openpyxl.Workbook()
 ws = wb.active
 ws.title = 'Elix_Stratified'
 
-ws.append(['Table: Cox PH Results Stratified by Elixhauser Comorbidity (van Walraven Score)'])
+ws.append(['Table: TV Cox Results Stratified by Elixhauser Comorbidity (van Walraven Score)'])
 ws['A1'].font = TITLE_FONT
-ws.append([f'Reference: SLP 0\u201314d  \u2022  Quartile cutpoints: Q1\u2264{q1:.0f}, Q2\u2264{q2:.0f}, Q3\u2264{q3:.0f}  \u2022  90-day landmark  \u2022  Home/HHA only'])
+ws.append([f'Reference: SLP 31\u201390d  \u2022  '
+           f'Quartile cutpoints: Q1\u2264{q1:.0f}, Q2\u2264{q2:.0f}, Q3\u2264{q3:.0f}  \u2022  '
+           f'PSM-matched cohort  \u2022  Max follow-up 365 days'])
 ws['A2'].font = Font(italic=True, size=10, color='555555')
 ws.append([])
 
@@ -386,82 +343,78 @@ for ci, col in enumerate(DISPLAY_COLS, 1):
     cell.alignment = Alignment(horizontal='center', wrap_text=True)
 ws.row_dimensions[hdr_row].height = 30
 
-prev_q = None
-prev_out = None
+prev_comp = None
+prev_q    = None
+prev_out  = None
 alt = 0
 
 for _, row in df_elix.iterrows():
-    ri = ws.max_row + 1
-    q   = row['Elixhauser Quartile']
-    out = row['Outcome']
+    comp = row['Comparison']
+    q    = row['Elixhauser Quartile']
+    out  = row['Outcome']
 
-    # Quartile section header when quartile changes
-    if q != prev_q:
+    if comp != prev_comp:
+        ri = ws.max_row + 1
         ws.row_dimensions[ri].height = 20
         for ci, col in enumerate(DISPLAY_COLS, 1):
-            val = q if ci == 1 else ''
+            cell = ws.cell(row=ri, column=ci, value=comp if ci == 1 else '')
+            cell.font      = COMP_FONT
+            cell.fill      = COMP_FILL
+            cell.alignment = Alignment(horizontal='left' if ci == 1 else 'center',
+                                       vertical='center')
+        prev_comp = comp
+        prev_q    = None
+        prev_out  = None
+        alt = 0
+
+    if q != prev_q:
+        ri = ws.max_row + 1
+        ws.row_dimensions[ri].height = 18
+        for ci, col in enumerate(DISPLAY_COLS, 1):
+            val = q if ci == 2 else (row.get(col, '') if col in
+                  ('N in quartile', 'N (treat)', 'N (ref)') else '')
             cell = ws.cell(row=ri, column=ci, value=val)
             cell.font      = QHDR_FONT
             cell.fill      = QHDR_FILL
-            cell.alignment = Alignment(horizontal='left' if ci==1 else 'center',
-                                        vertical='center')
-        prev_q  = q
+            cell.alignment = Alignment(horizontal='left' if ci <= 2 else 'center',
+                                       vertical='center')
+        prev_q   = q
         prev_out = None
         alt = 0
-        ri = ws.max_row + 1
 
-    # Outcome sub-header when outcome changes within a quartile
     if out != prev_out:
+        ri = ws.max_row + 1
         ws.row_dimensions[ri].height = 16
         for ci, col in enumerate(DISPLAY_COLS, 1):
-            val = out if ci == 2 else (row.get(col,'') if ci > 2 and col in
-                  ['N in quartile','N (0-14d)','N (15-30d)','N (31-90d)'] else '')
+            val = out if ci == 3 else ''
             cell = ws.cell(row=ri, column=ci, value=val)
             cell.font      = OUT_FONT
             cell.fill      = OUT_FILL
-            cell.alignment = Alignment(horizontal='left' if ci<=2 else 'center',
-                                        vertical='center')
+            cell.alignment = Alignment(horizontal='left', vertical='center')
         prev_out = out
         alt = 0
-        ri = ws.max_row + 1
 
-    # Data row
     alt += 1
+    ri = ws.max_row + 1
     ws.row_dimensions[ri].height = 16
     for ci, col in enumerate(DISPLAY_COLS, 1):
-        # Don't repeat quartile/N info in data rows
-        if col in ('Elixhauser Quartile','N in quartile',
-                   'N (0-14d)','N (15-30d)','N (31-90d)','Outcome'):
-            val = ''
-        else:
-            val = row.get(col, '')
+        skip_cols = ('Comparison', 'Elixhauser Quartile',
+                     'N in quartile', 'N (treat)', 'N (ref)', 'Outcome')
+        val = '' if col in skip_cols else row.get(col, '')
         cell = ws.cell(row=ri, column=ci, value=val)
-        cell.alignment = Alignment(
-            horizontal='left' if ci <= 2 else 'center',
-            vertical='center')
-        if alt % 2 == 0:
-            cell.fill = ALT_FILL
-        if col == 'p-value' and val == '<0.0001':
-            cell.font = SIG_FONT
-        if col == 'HR (95% CI)' and val not in ('', 'Too few events'):
-            cell.font = Font(bold=True, size=10)
+        cell.fill      = ALT_FILL if alt % 2 == 0 else PatternFill()
+        cell.alignment = Alignment(horizontal='left', vertical='center')
+        if ci == 9 and str(val) not in ('Too few events', ''):
+            try:
+                p_val = float(row['p-value'].replace('<', '')) if '<' in str(row['p-value']) else float(row['p-value'])
+                if (p_val < 0.05 and '<' in str(row['p-value'])) or (str(row['p-value']) != '' and p_val < 0.05):
+                    cell.font = SIG_FONT
+            except Exception:
+                pass
 
-# Column widths
-col_widths = [38, 16, 18, 12, 10, 10, 10, 12, 10, 22, 10]
-for i, w in enumerate(col_widths, 1):
-    ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+for ci, width in zip(range(1, len(DISPLAY_COLS) + 1),
+                     [32, 32, 18, 13, 10, 10, 12, 10, 24, 12]):
+    ws.column_dimensions[ws.cell(1, ci).column_letter].width = width
 
-# Footnote
-fn_row = ws.max_row + 2
-ws.cell(row=fn_row, column=1,
-        value=('Covariates in each stratum: age, LOS, SLP timing dummies, mechanical ventilation, '
-               'tracheostomy, prior stroke, dementia, dysphagia POA, aspiration POA, '
-               'discharge destination (home vs HHA), sex, stroke type.  '
-               'Van Walraven score is a weighted Elixhauser comorbidity index.'))
-ws.cell(row=fn_row, column=1).font = Font(italic=True, size=8.5, color='666666')
-ws.merge_cells(start_row=fn_row, start_column=1,
-               end_row=fn_row,   end_column=len(DISPLAY_COLS))
-
-ws.freeze_panes = f'A{hdr_row + 1}'
 wb.save(str(ELIX_PATH))
 print(f"Saved: {ELIX_PATH}")

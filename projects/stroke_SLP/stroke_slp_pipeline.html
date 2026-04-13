@@ -171,7 +171,7 @@
 <div class="header-block">
     <h1>Stroke + SLP Timing Study &mdash; Pipeline Specification</h1>
     <p>Early vs. Late Outpatient Speech-Language Pathology After Acute Stroke: Impact on Aspiration Pneumonia and Dysphagia Outcomes</p>
-    <p>Data source: CMS Medicare FFS Claims &bull; Database: <code>cms_data.duckdb</code> &bull; Last updated: March 2026</p>
+    <p>Data source: CMS Medicare FFS Claims &bull; Database: <code>cms_data.duckdb</code> &bull; Last updated: April 2026</p>
 </div>
 
 <div class="toc">
@@ -210,20 +210,17 @@ with lower rates of aspiration pneumonia, dysphagia diagnoses, and G-tube placem
 <p><strong>Exposure:</strong> Timing of first outpatient (clinic-based) SLP contact after discharge, categorized as:</p>
 <table>
     <tr><th>Group</th><th>Days from discharge</th><th>Role</th></tr>
-    <tr><td><code>0-14d</code></td><td>0 to 14 days</td><td>Treated (Comparison A)</td></tr>
-    <tr><td><code>15-30d</code></td><td>15 to 30 days</td><td>Treated (Comparison B)</td></tr>
-    <tr><td><code>31-90d</code></td><td>31 to 90 days</td><td>Reference (both comparisons)</td></tr>
+    <tr><td><code>Wk0</code></td><td>1 to 7 days</td><td>Excluded (discharge-transitional visits; see below)</td></tr>
+    <tr><td><code>Early</code></td><td>8 to 35 days</td><td>Treated &mdash; Primary Comparison A</td></tr>
+    <tr><td><code>Late</code></td><td>36 to 90 days</td><td>Reference &mdash; Primary Comparison A</td></tr>
 </table>
 
-<p><strong>Two pairwise PSM comparisons:</strong></p>
+<p><strong>Single PSM comparison (primary):</strong></p>
 <div class="comparison-box">
-    <h4>Comparison A <span class="tag">0-14d vs 31-90d</span></h4>
-    <p>Very early SLP (within 2 weeks of discharge) vs. late outpatient SLP (weeks 4-13). Captures effects of near-immediate post-acute SLP referral.</p>
+    <h4>Comparison A <span class="tag">Early (8&ndash;35d) vs Late (36&ndash;90d)</span></h4>
+    <p>Early SLP (days 8&ndash;35, Weeks 1&ndash;4 post-discharge) vs. late outpatient SLP (days 36&ndash;90, Week 5+). Week 0 (days 1&ndash;7) is excluded as discharge-transitional care, not true outpatient rehabilitation initiation.</p>
 </div>
-<div class="comparison-box">
-    <h4>Comparison B <span class="tag blue">15-30d vs 31-90d</span></h4>
-    <p>Standard-early SLP (weeks 2-4) vs. late outpatient SLP. Captures the effect of timely standard-of-care referral.</p>
-</div>
+<p>A supplementary week-by-week dose-response analysis (Wk1&ndash;4 each vs Wk6+) is implemented in <code>comp_week_bins.py</code>, confirming the monotone gradient that motivates the Early/Late dichotomy.</p>
 
 <h1 id="s2">2. Pipeline Overview</h1>
 
@@ -254,7 +251,7 @@ with lower rates of aspiration pneumonia, dysphagia diagnoses, and G-tube placem
     <tr><td>3</td><td><code>build_stroke_comorbidity.py</code></td><td><code>stroke_comorbidity</code></td><td>Elixhauser/van Walraven scoring from prior-year claims</td></tr>
     <tr><td>4</td><td><code>stroke_propensity.sql</code></td><td><code>stroke_propensity</code></td><td>Assemble analytic dataset; assign slp_timing_group; PSM columns initialized to NULL</td></tr>
     <tr><td>5</td><td><code>stroke_outcomes.sql</code></td><td><code>stroke_outcomes</code></td><td>Identify all outcomes in 365-day post-discharge window</td></tr>
-    <tr><td>6</td><td><code>stroke_psm.py</code></td><td>Updates <code>stroke_propensity</code></td><td>Two pairwise 1:1 greedy PSM; writes psm_matched_A/B back to table</td></tr>
+    <tr><td>6</td><td><code>stroke_psm.py</code></td><td>Updates <code>stroke_propensity</code></td><td>Single 1:1 greedy PSM (Early vs Late); writes psm_matched_A back to table</td></tr>
     <tr><td>7</td><td><code>stroke_analysis.py</code></td><td>Console / stdout</td><td>OR tables, Cox PH, KM curves, cost analysis for each comparison</td></tr>
     <tr><td>8</td><td><code>make_stroke_table.py</code></td><td><code>stroke_slp_tables.xlsx</code></td><td>Formatted Excel workbook with all analytic tables</td></tr>
 </table>
@@ -331,6 +328,30 @@ with lower rates of aspiration pneumonia, dysphagia diagnoses, and G-tube placem
     Applied via <code>first_slp_is_clinic = TRUE</code> in <code>stroke_slp</code>.
 </div>
 
+<div class="step-box exclusion">
+    <span class="step-number">X</span>
+    <strong>Dysphagia present on admission (<code>dysphagia_poa = 1</code>)</strong><br>
+    Patients with documented dysphagia at the time of admission had pre-existing swallowing dysfunction unrelated to the index stroke. Including them would confound the association between SLP timing and swallowing outcomes, since their trajectory is driven by prior pathology rather than stroke-related dysphagia onset.
+</div>
+
+<div class="step-box exclusion">
+    <span class="step-number">X</span>
+    <strong>Aspiration present on admission (<code>aspiration_poa = 1</code>)</strong><br>
+    Same rationale as dysphagia POA — pre-existing aspiration indicates a swallowing disorder predating the stroke that would confound outcome comparisons.
+</div>
+
+<div class="step-box exclusion">
+    <span class="step-number">X</span>
+    <strong>PEG/G-tube placed during index admission (<code>peg_placed = 1</code>)</strong><br>
+    Index-admission PEG placement indicates severe dysphagia requiring enteral nutrition before discharge. These patients represent an outlier severity profile; their SLP timing is driven by clinical urgency rather than care coordination, and their G-tube outcome is pre-determined.
+</div>
+
+<div class="step-box exclusion">
+    <span class="step-number">X</span>
+    <strong>Tracheostomy placed during index admission (<code>trach_placed = 1</code>)</strong><br>
+    Index-admission tracheostomy indicates critical illness (mechanical ventilation failure, severe aspiration risk). These patients are clinically distinct from the ambulatory home-discharged population and introduce near-zero variance in PSM models.
+</div>
+
 <h1 id="s4">4. SLP Exposure Definition</h1>
 
 <h2>4.1 What Counts as SLP for Timing</h2>
@@ -359,12 +380,17 @@ days_to_slp_outpt = MIN(claim_date) - index_dschg_date
                       AND claim_type IN ('carrier', 'outpatient')</code></pre>
 
 <h2>4.3 Timing Group Assignment</h2>
-<p>Assigned in <code>stroke_propensity.sql</code>. All patients in the analytic cohort have a clinic SLP within 90 days by definition; three timing levels are used.</p>
+<p>Assigned in <code>stroke_propensity.sql</code>. Three levels are defined; only <code>Early</code> and <code>Late</code> enter the primary analysis. The <code>WHERE</code> clause restricts to days 1&ndash;90 (excluding day 0); <code>Wk0</code> patients are retained in the table with an exclusion flag but filtered in downstream scripts.</p>
 <pre><code>CASE
-    WHEN days_to_slp_outpt BETWEEN  0 AND 14 THEN '0-14d'
-    WHEN days_to_slp_outpt BETWEEN 15 AND 30 THEN '15-30d'
-    WHEN days_to_slp_outpt BETWEEN 31 AND 90 THEN '31-90d'
+    WHEN days_to_slp_outpt BETWEEN  1 AND  7 THEN 'Wk0'    -- retained with flag; excluded from analysis
+    WHEN days_to_slp_outpt BETWEEN  8 AND 35 THEN 'Early'
+    WHEN days_to_slp_outpt BETWEEN 36 AND 90 THEN 'Late'
+    ELSE 'No SLP'
 END AS slp_timing_group</code></pre>
+
+<div class="note"><strong>Week 0 exclusion (days 1&ndash;7):</strong> SLP visits in the first 7 days post-discharge represent discharge-arranged transitional care, not true outpatient rehabilitation initiation. Descriptive evidence: mean van Walraven score = 4.90 (vs. 4.50&ndash;4.85 for days 8+), 30-day SNF readmission rate 2.76% (vs. &lt;0.5% for days 8+), 30-day all-cause readmission 15.5% (vs. ~7&ndash;11% for days 8+). These patients are retained in <code>stroke_propensity</code> with <code>slp_timing_group = 'Wk0'</code> for descriptive reporting but excluded from all PSM and Cox analyses via <code>WHERE slp_timing_group IN ('Early', 'Late')</code> in downstream scripts.</div>
+
+<div class="note"><strong>Readmission-before-SLP flag (sensitivity analysis only):</strong> Patients whose first inpatient readmission occurred <em>before</em> their first outpatient SLP visit are flagged with <code>readmit_before_slp = TRUE</code> in <code>stroke_propensity</code>. This flag is <strong>not</strong> used as a primary-analysis exclusion — excluding these patients creates differential healthy survivor bias because Late patients (days 36&ndash;90) have a 20.4% readmit-before-SLP rate vs. 5.7% for Early patients (more time for readmission to precede a later SLP visit). The TV Cox model&rsquo;s person-time split at <code>days_to_slp_outpt</code> already assigns pre-SLP events to the untreated window, making no exclusion necessary. The flag is retained for a sensitivity analysis that adds <code>AND readmit_before_slp = FALSE</code> to the PSM filter. Flag computed from <code>inp_claimsk_all</code> in a pre-step within <code>stroke_propensity.sql</code>.</div>
 
 <h1 id="s5">5. Propensity Score Matching</h1>
 <h2>5.1 Covariates</h2>
@@ -374,28 +400,29 @@ END AS slp_timing_group</code></pre>
     <tr><td><code>sex</code></td><td>Categorical</td><td>Sex differences in stroke outcomes</td></tr>
     <tr><td><code>race</code></td><td>Categorical</td><td>Disparities in SLP access and stroke outcomes</td></tr>
     <tr><td><code>stroke_type</code></td><td>Categorical (SAH/ICH/Ischemic/Unspecified)</td><td>Major determinant of severity and SLP need</td></tr>
-    <tr><td><code>dysphagia_poa</code></td><td>Binary</td><td>Present-on-admission dysphagia directly drives SLP referral timing</td></tr>
-    <tr><td><code>aspiration_poa</code></td><td>Binary</td><td>Present-on-admission aspiration</td></tr>
     <tr><td><code>index_los</code></td><td>Continuous</td><td>Longer LOS reflects severity; may delay outpatient referral</td></tr>
     <tr><td><code>adm_source</code></td><td>Categorical</td><td>Transfer vs. ED admission affects post-acute planning</td></tr>
     <tr><td><code>adm_year</code></td><td>Continuous</td><td>Secular trends in SLP practice patterns</td></tr>
     <tr><td><code>van_walraven_score</code></td><td>Continuous</td><td>Overall comorbidity burden (Elixhauser summary)</td></tr>
-    <tr><td><code>mech_vent, peg_placed, trach_placed</code></td><td>Binary</td><td>Severe index admission procedures predicting SLP need</td></tr>
+    <tr><td><code>mech_vent</code></td><td>Binary</td><td>Mechanical ventilation during index admission (severity proxy)</td></tr>
     <tr><td><code>prior_stroke, afib, hypertension</code></td><td>Binary</td><td>Stroke-specific risk factors</td></tr>
     <tr><td><code>drg_group</code></td><td>Categorical (bucketed DRG)</td><td>Clinical complexity proxy from index admission billing</td></tr>
+    <tr><td><code>rucc_group</code></td><td>Categorical (Metro/Nonmetro/Rural)</td><td>County-level rural-urban classification (RUCC 2023); geographic access to outpatient SLP</td></tr>
+    <tr><td><code>dual_eligible</code></td><td>Binary</td><td>Medicare&ndash;Medicaid dual enrollment in admission month; SES proxy affecting healthcare utilization</td></tr>
 </table>
 
-<div class="note">Discharge disposition (Home vs. Home+HHA) is included as a <strong>covariate</strong> in the PS model. Because all patients are home-discharged, it is not a strong confounder, but captures the marginal difference between planned-HHA and non-HHA home discharges. It is no longer used as an exact matching stratum.</div>
+<div class="note">Discharge disposition (Home vs. Home+HHA) is <strong>not</strong> included in the PS model. All patients are home-discharged (codes 01/06/07), so this variable has near-zero variance as a confounder. It is reported descriptively and used as a subgroup stratifier (Table 5b) but not as a matching covariate.</div>
 
 <h2>5.2 PSM Algorithm</h2>
 <ul>
     <li>Logistic regression: P(treated=1 | covariates), fit separately for each comparison</li>
     <li>Logit-transformed propensity score used for distance metric</li>
     <li>1:1 greedy nearest-neighbor matching <em>without replacement</em></li>
-    <li>Caliper: <strong>0.2 &times; SD(logit PS)</strong> (Austin 2011 recommendation)</li>
+    <li>Caliper: <strong>0.2 &times; SD(logit PS)</strong></li>
     <li>Single KD-tree across all home-discharged controls (no exact matching stratum required)</li>
     <li>Random shuffle of treated patients before matching to remove order effects (seed = 42)</li>
-    <li>Results written back to <code>stroke_propensity</code>: <code>psm_matched_A</code>, <code>psm_match_id_A</code>, <code>prop_score_A</code> (and _B for comparison B)</li>
+    <li>Results written back to <code>stroke_propensity</code>: <code>psm_matched_A</code>, <code>psm_match_id_A</code>, <code>prop_score_A</code></li>
+    <li>Analytic filter in <code>stroke_psm.py</code>: <code>WHERE slp_timing_group IN ('Early', 'Late')</code> (readmit_before_slp is a sensitivity toggle only)</li>
 </ul>
 <div class="file-ref"><code>projects/stroke_SLP/stroke_psm.py</code></div>
 
@@ -409,10 +436,11 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
 
 <div class="outcome-grid">
     <div class="outcome-card primary">
-        <h4>Aspiration Pneumonia <span class="badge">Primary</span></h4>
-        <p>Any inpatient or outpatient claim with a principal or secondary aspiration PNA diagnosis within 365 days of discharge. SNF and HHA claims are excluded from ascertainment.</p>
-        <p class="codes">J690, J698</p>
+        <h4>Aspiration-related Pneumonia <span class="badge">Primary</span></h4>
+        <p>Any inpatient or outpatient claim with a principal or secondary pneumonia diagnosis in the J18 (unspecified pneumonia) or J69 (aspiration pneumonitis) categories within 365 days of discharge. This composite captures both coded aspiration events and clinically related unspecified pneumonia, which in stroke populations frequently represents under-coded aspiration. SNF and HHA claims are excluded from ascertainment.</p>
+        <p class="codes">J18 (unspecified pneumonia) + J69 (aspiration pneumonitis)</p>
         <p><em>Source:</em> Inpatient, carrier, outpatient facility only</p>
+        <p><em>Derived in Python:</em> <code>days_to_asp_related</code> = <code>days_to_pneumonia</code> WHERE <code>first_pneumonia_code IN ('J18', 'J69')</code></p>
     </div>
     <div class="outcome-card primary">
         <h4>Dysphagia Diagnosis <span class="badge">Primary</span></h4>
@@ -423,7 +451,7 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
     <div class="outcome-card primary">
         <h4>G-tube Placement / Dependence <span class="badge">Primary</span></h4>
         <p>Gastrostomy status code, surgical placement CPT/PCS, or enteral nutrition supply HCPCS — any of which indicates initiation or ongoing tube-feeding dependence.</p>
-        <p class="codes">Z931 &bull; 43246, 49440 &bull; B4087, B4088, B408x &bull; 0DH63UZ, 0DH64UZ, 0DH65UZ</p>
+        <p class="codes">Z931 &bull; 43246, 43750, 44372, 44500, 49440, 49441, 74350, 74355 &bull; B4034&ndash;B4036, B4081&ndash;B4088 &bull; 0DH63UZ, 0DH60UZ</p>
         <p><em>Source:</em> MEDPAR, carrier, outpatient, DME</p>
     </div>
 </div>
@@ -434,7 +462,7 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
 <div class="outcome-grid">
     <div class="outcome-card secondary">
         <h4>All Pneumonia <span class="badge sec">Secondary</span></h4>
-        <p>Any inpatient or outpatient claim with any pneumonia diagnosis (viral, bacterial, aspiration, unspecified) within 365 days. Reported with code breakdown by 3-character ICD-10 category. SNF and HHA claims excluded.</p>
+        <p>Any inpatient or outpatient claim with any pneumonia diagnosis (viral, bacterial, aspiration, unspecified) within 365 days. Superset of the primary aspiration-related PNA outcome. Reported with code breakdown by 3-character ICD-10 category. SNF and HHA claims excluded.</p>
         <p class="codes">J09&ndash;J18, J69</p>
         <p><em>Source:</em> Inpatient, carrier, outpatient facility only</p>
     </div>
@@ -485,7 +513,7 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
     <li>Look-back window: 12 months prior to index admission using all claim types</li>
     <li>ICD-10-CM codes mapped per Quan et al. (2005) adaptation</li>
     <li>Output: <code>van_walraven_score</code> (scalar) + individual comorbidity flags (30+ columns)</li>
-    <li>Stroke-specific flags added separately: <code>prior_stroke, afib, prior_tia, hypertension, dyslipid, smoking</code></li>
+    <li>Stroke-specific flags added separately: <code>prior_stroke, afib, prior_tia, hypertension, dyslipid, smoking, dementia</code></li>
 </ul>
 <div class="file-ref"><code>projects/stroke_SLP/queries/stroke_comorbidity.sql</code></div>
 
@@ -514,14 +542,51 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
 <ul>
     <li>By stroke type: Ischemic vs. ICH</li>
     <li>By age: &lt;75, 75&ndash;84, 85+</li>
-    <li>By dysphagia POA: present vs. absent</li>
-    <li>By Elixhauser tertile: Low / Mid / High comorbidity burden</li>
+<li>By Elixhauser tertile: Low / Mid / High comorbidity burden</li>
     <li>By discharge disposition: <code>Home</code> (codes 01/07) vs. <code>Home+HHA</code> (code 06) — both are within the analytic cohort; results reported separately as the planned-HHA subgroup is clinically distinct.</li>
 </ul>
 
 <h2>8.3 Covariate Balance Assessment</h2>
 <p>Standardized mean differences (SMD) reported pre- and post-match for all PSM covariates.
 Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
+
+<h2>8.4 Primary Results &mdash; Early vs Late (Design B)</h2>
+<p>Implemented in <code>make_results_outputs.py</code>. PSM-matched cohort (Comparison A: Early 8&ndash;35d vs Late 36&ndash;90d reference), TV Cox PH, max follow-up 365 days.</p>
+<table>
+    <tr><th>Outcome</th><th>N</th><th>Events</th><th>HR [95% CI]</th><th>p-value</th></tr>
+    <tr><td>Aspiration-related PNA (J18+J69)</td><td>19,412</td><td>1,200 (6.2%)</td><td>0.81 [0.72&ndash;0.92]</td><td>0.0007</td></tr>
+    <tr><td>PEG / G-tube Placement</td><td>19,372</td><td>213 (1.1%)</td><td>0.63 [0.47&ndash;0.85]</td><td>0.0021</td></tr>
+    <tr><td>All-cause Mortality</td><td>19,412</td><td>1,396 (7.2%)</td><td>1.06 [0.95&ndash;1.18]</td><td>0.2913</td></tr>
+</table>
+<p><strong>Note:</strong> 9,706 matched pairs (19,412 patients). Match rate ~57% of Early pool. PS model includes <code>rucc_group</code> and <code>dual_eligible</code> as geographic/SES covariates. Unmatched Early patients are excluded from the PSM analysis but represent a generalizable group clinically; this limitation is discussed in the manuscript.</p>
+
+<h2>8.5 Secondary Analysis &mdash; Week-by-Week Dose-Response (comp_week_bins.py)</h2>
+<p><strong>Rationale:</strong> Tests whether incrementally earlier SLP produces larger benefit, consistent with a dose-response relationship motivating the Early/Late dichotomy.</p>
+<p><strong>Method:</strong> Implemented in <code>comp_week_bins.py</code> (standalone script). Four weekly bins (Wk1=8&ndash;14d, Wk2=15&ndash;21d, Wk3=22&ndash;28d, Wk4=29&ndash;35d) each matched vs. Wk6+ reference (days 43&ndash;90). Week 0 excluded. Same PSM covariates and TV Cox framework.</p>
+
+<table>
+    <tr><th>Parameter</th><th>Value</th></tr>
+    <tr><td>Wk1 (treated)</td><td>days 8&ndash;14</td></tr>
+    <tr><td>Wk2 (treated)</td><td>days 15&ndash;21</td></tr>
+    <tr><td>Wk3 (treated)</td><td>days 22&ndash;28</td></tr>
+    <tr><td>Wk4 (treated)</td><td>days 29&ndash;35</td></tr>
+    <tr><td>Reference</td><td>Wk6+ (days 43&ndash;90, n=7,070)</td></tr>
+    <tr><td>PSM</td><td>Four separate 1:1 PSM runs; same covariates; match rate &gt;99%</td></tr>
+    <tr><td>Analysis</td><td>TV Cox PH, max follow-up 365 days</td></tr>
+</table>
+
+<p><strong>Dose-response results (J18+J69 composite, updated PS covariates):</strong></p>
+<table>
+    <tr><th>Comparison</th><th>Asp-related PNA HR</th><th>G-tube HR</th><th>Mortality HR</th></tr>
+    <tr><td>Wk1 (8&ndash;14d) vs Wk6+</td><td>0.84* [0.71&ndash;0.99]</td><td>0.55** [0.36&ndash;0.83]</td><td>1.06 [0.91&ndash;1.24]</td></tr>
+    <tr><td>Wk2 (15&ndash;21d) vs Wk6+</td><td>0.64*** [0.53&ndash;0.76]</td><td>0.67 [0.44&ndash;1.02]</td><td>1.03 [0.89&ndash;1.20]</td></tr>
+    <tr><td>Wk3 (22&ndash;28d) vs Wk6+</td><td>0.75** [0.62&ndash;0.90]</td><td>0.46** [0.28&ndash;0.75]</td><td>0.91 [0.77&ndash;1.07]</td></tr>
+    <tr><td>Wk4 (29&ndash;35d) vs Wk6+</td><td>0.81* [0.67&ndash;0.98]</td><td>0.44** [0.26&ndash;0.74]</td><td>1.00 [0.84&ndash;1.19]</td></tr>
+</table>
+<p>* p&lt;0.05 &nbsp; ** p&lt;0.01 &nbsp; *** p&lt;0.001. G-tube shows monotone gradient (HR 0.55&rarr;0.67&rarr;0.46&rarr;0.44); aspiration-related PNA protective across all weeks with strongest effect at Wk2. Mortality null throughout. Match rates &gt;97% for all weekly comparisons.</p>
+
+<h2>8.6 Sensitivity &mdash; Excluding Readmit-Before-SLP Patients</h2>
+<p>The primary analysis includes all Early and Late patients regardless of <code>readmit_before_slp</code> status. A sensitivity analysis repeats the primary PSM + TV Cox <em>with</em> the additional exclusion (<code>WHERE slp_timing_group IN ('Early', 'Late') AND readmit_before_slp = FALSE</code>) to evaluate whether the readmit-before-SLP subgroup drives results. Note: this sensitivity filter creates differential healthy survivor bias (Early: 5.7% excluded vs. Late: 20.4% excluded) so results should be interpreted cautiously. Implemented by modifying the WHERE clause in <code>stroke_psm.py</code>.</p>
 
 <h1 id="s9">9. Code Reference</h1>
 
@@ -565,7 +630,7 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
     <tr>
         <td><code>stroke_psm.py</code></td>
         <td><code>projects/stroke_SLP/</code></td>
-        <td>Two pairwise PSM comparisons; writes match flags back to DB</td>
+        <td>Single PSM comparison (Early vs Late); writes psm_matched_A back to DB</td>
     </tr>
     <tr>
         <td><code>stroke_analysis.py</code></td>
@@ -576,6 +641,46 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
         <td><code>make_stroke_table.py</code></td>
         <td><code>projects/stroke_SLP/</code></td>
         <td>Export formatted Excel workbook</td>
+    </tr>
+    <tr>
+        <td><code>comp_week_bins.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Secondary dose-response: Design A (Wk1&ndash;4 each vs Wk6+) + Design B (Early vs Late); PSM + TV Cox; standalone script</td>
+    </tr>
+    <tr>
+        <td><code>comp_b_sensitivity.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Week-by-week dose-response sensitivity (Wk1&ndash;4 each vs Wk5+); standalone, not part of primary pipeline</td>
+    </tr>
+    <tr>
+        <td><code>comp_b_stratified.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Subgroup TV Cox analysis (age, sex, stroke type, discharge type, Elixhauser); standalone</td>
+    </tr>
+    <tr>
+        <td><code>make_flowchart.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>CONSORT-style cohort flowchart (fig1_cohort.png)</td>
+    </tr>
+    <tr>
+        <td><code>make_table1.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Baseline characteristics table (Table1.xlsx)</td>
+    </tr>
+    <tr>
+        <td><code>make_results_outputs.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Primary forest plot (Figure2.png) and TV Cox results table (Table3.xlsx)</td>
+    </tr>
+    <tr>
+        <td><code>make_gradient_elix.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Elixhauser-stratified gradient plots (Supp_Figure1&ndash;4.png, Supp_Table1&ndash;3.xlsx)</td>
+    </tr>
+    <tr>
+        <td><code>make_love_plot.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>PSM covariate balance (Love) plot</td>
     </tr>
     <tr>
         <td><code>codes.json</code></td>
@@ -616,15 +721,6 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
     within year 1. SLP's mechanism (swallowing rehabilitation) operates primarily in the first 6&ndash;12
     months of recovery. Competing risks from death and enrollment disenrollment severely dilute signal
     in years 3&ndash;5. Primary window: 365 days; secondary analysis can extend to 2 years if warranted.
-</div>
-
-<div class="step-box warning">
-    <strong>Why no landmark analysis?</strong><br>
-    Landmark analysis (conditioning survival at day 30) was considered but rejected: (1) only 0.8% of
-    the cohort had aspiration PNA before day 30, so the landmark provides negligible survival selection
-    benefit; (2) the cohort already excludes 30-day post-discharge deaths, eliminating the primary
-    motivation for a landmark; (3) the PSM on timing groups is the methodologically preferred approach
-    for a timing-based exposure.
 </div>
 
 </body>
