@@ -33,8 +33,9 @@ SET threads=12;
 
 -- ── Readmission timing: first inpatient readmission within 90d of discharge ───
 -- Used to flag patients whose first inpatient readmission preceded their SLP visit.
--- readmit_before_slp = TRUE patients are excluded from primary analysis but retained
--- in stroke_propensity for sensitivity analyses.
+-- readmit_before_slp = TRUE patients are retained in the primary analysis.
+-- The flag is used only for sensitivity analyses because excluding these rows
+-- creates differential healthy-survivor bias, especially in the Late group.
 CREATE OR REPLACE TEMP TABLE _readmit_timing AS
 SELECT
     c.DSYSRTKY,
@@ -213,7 +214,8 @@ WHERE s.first_slp_is_clinic = TRUE
   AND COALESCE(c.trach_placed,   0) = 0;  -- exclude index tracheostomy
 
 -- ── Summary: covariate balance check (pre-PSM) ────────────────────────────────
--- Primary analytic cohort: slp_timing_group IN ('Early','Late') AND readmit_before_slp = FALSE
+-- Primary analytic cohort: slp_timing_group IN ('Early','Late')
+-- Sensitivity cohort: add readmit_before_slp = FALSE
 SELECT
     slp_timing_group,
     SUM(CASE WHEN readmit_before_slp THEN 1 ELSE 0 END)  AS n_readmit_excl,

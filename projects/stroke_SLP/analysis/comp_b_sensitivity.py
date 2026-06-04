@@ -11,16 +11,11 @@ Week 0 (days 1-7) excluded entirely, consistent with primary analysis.
 Reference group: Week 5+ (days 36-90), same as primary Early vs Late comparison.
 PSM + TV Cox per week bin. Dose-response: earlier SLP → greater benefit.
 """
-import os
-from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-import duckdb, numpy as np, pandas as pd
+import numpy as np
+import pandas as pd
 from scipy.spatial import cKDTree
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from lifelines import CoxTimeVaryingFitter
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -28,15 +23,12 @@ import matplotlib.gridspec as gridspec
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP" / "output_files"
-_out_dir.mkdir(parents=True, exist_ok=True)
-DB_PATH     = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
-FIGURE_PATH = _out_dir / "Supp_Figure2.png"
-TABLE_PATH  = _out_dir / "Supp_Table2.xlsx"
+from stroke_slp_common import OUT_DIR, add_aspiration_related_pna, connect, run_tv_cox
+
+FIGURE_PATH = OUT_DIR / "Supp_Figure2.png"
+TABLE_PATH  = OUT_DIR / "Supp_Table2.xlsx"
 
 RANDOM_SEED   = 42
-MAX_FOLLOW    = 365
-TV_COVARIATES = ['age_at_adm', 'van_walraven_score', 'index_los']
 CONT_VARS     = ['age_at_adm', 'index_los', 'van_walraven_score', 'adm_year']
 BINARY_VARS   = ['afib', 'hypertension', 'mech_vent', 'prior_stroke', 'dual_eligible']
 CAT_VARS      = ['sex', 'race', 'stroke_type', 'drg_group', 'adm_source', 'rucc_group']
@@ -74,8 +66,7 @@ def bucket_drg(d):
 
 # ── Load ───────────────────────────────────────────────────────────────────────
 print("Loading data...")
-con = duckdb.connect(str(DB_PATH), read_only=True)
-con.execute("SET memory_limit='24GB'; SET threads=12;")
+con = connect(read_only=True)
 df_prop = con.execute("""
     SELECT DSYSRTKY, days_to_slp_outpt,
            age_at_adm, index_los, van_walraven_score, adm_year,
@@ -107,10 +98,7 @@ df_prop['rucc_group']   = df_prop['rucc_group'].fillna('Unknown').astype(str)
 df_prop['dual_eligible'] = df_prop['dual_eligible'].fillna(0).astype(int)
 
 df_all = df_prop.merge(df_out, on='DSYSRTKY', how='inner')
-df_all['days_to_asp_related'] = np.where(
-    df_all['first_pneumonia_code'].isin(['J18', 'J69']),
-    df_all['days_to_pneumonia'], np.nan
-)
+df_all = add_aspiration_related_pna(df_all)
 counts = df_all['timing_new'].value_counts()
 print(f"  {len(df_all):,} rows  |  " +
       "  ".join(f"{g}:{counts.get(g,0):,}" for g in ['Wk1','Wk2','Wk3','Wk4','Wk5+']))
@@ -155,55 +143,6 @@ def run_psm(df_full, treat_grp, ctrl_grp):
 
 
 # ── TV Cox ─────────────────────────────────────────────────────────────────────
-def build_tv_df(df, event_col, competing_col, treat_grp):
-    records = []
-    for _, row in df.iterrows():
-        slp_day  = float(row['days_to_slp_outpt'])
-        ev_day   = row[event_col]
-        comp_day = (row[competing_col]
-                    if competing_col and pd.notna(row[competing_col]) else np.nan)
-        candidates = [float(MAX_FOLLOW)]
-        if pd.notna(ev_day):   candidates.append(float(ev_day))
-        if pd.notna(comp_day): candidates.append(float(comp_day))
-        end_time    = min(candidates)
-        final_event = int(pd.notna(ev_day) and float(ev_day) <= MAX_FOLLOW
-                          and float(ev_day) == end_time)
-        group_flag  = 1 if row['timing_new'] == treat_grp else 0
-        base = {c: float(row[c]) if pd.notna(row[c]) else 0.0 for c in TV_COVARIATES}
-        if end_time <= slp_day:
-            records.append({'id': row['DSYSRTKY'], 'start': 0.0,
-                            'stop': max(end_time, 0.5),
-                            'trt': 0, 'event': final_event, **base})
-        else:
-            if slp_day > 0:
-                records.append({'id': row['DSYSRTKY'], 'start': 0.0,
-                                'stop': slp_day, 'trt': 0, 'event': 0, **base})
-            records.append({'id': row['DSYSRTKY'], 'start': slp_day,
-                            'stop': max(end_time, slp_day + 0.5),
-                            'trt': group_flag, 'event': final_event, **base})
-    return pd.DataFrame(records)
-
-def run_tv_cox(df, event_col, competing_col, treat_grp):
-    tv = build_tv_df(df, event_col, competing_col, treat_grp)
-    tv = tv.dropna(subset=TV_COVARIATES)
-    for col in ['age_at_adm', 'van_walraven_score', 'index_los']:
-        sd = tv[col].std()
-        if sd > 0: tv[col] = (tv[col] - tv[col].mean()) / sd
-    n_pts, n_evts = tv['id'].nunique(), int(tv['event'].sum())
-    if n_evts < 10: return None, n_pts, n_evts
-    try:
-        ctv = CoxTimeVaryingFitter()
-        ctv.fit(tv, id_col='id', start_col='start', stop_col='stop',
-                event_col='event', show_progress=False)
-        r = ctv.summary.loc['trt']
-        hr, lo, hi, p = (np.exp(r['coef']), np.exp(r['coef lower 95%']),
-                         np.exp(r['coef upper 95%']), r['p'])
-        return (hr, lo, hi, p), n_pts, n_evts
-    except Exception as e:
-        print(f"    ERROR: {e}")
-        return None, n_pts, n_evts
-
-
 # ── Run all comparisons ────────────────────────────────────────────────────────
 results = []
 for comp_label, treat_grp, ctrl_grp in COMPARISONS:
@@ -214,7 +153,7 @@ for comp_label, treat_grp, ctrl_grp in COMPARISONS:
         sub = df_comp.copy()
         if excl_peg:
             sub = sub[(sub['peg_placed'] == 0) & (sub['pre_stroke_tube'].fillna(0) == 0)]
-        res, n, n_ev = run_tv_cox(sub, ev_col, comp_col, treat_grp)
+        res, n, n_ev = run_tv_cox(sub, ev_col, comp_col, treat_grp, group_col="timing_new")
         entry = {'Comparison': f"{treat_grp} vs {ctrl_grp} (ref)",
                  'comp_label': comp_label, 'treat_grp': treat_grp,
                  'Outcome': out_label, 'N': n, 'Events': n_ev,
@@ -246,7 +185,7 @@ for _, row in df_res.iterrows():
 
 
 # ── Forest plot — week-by-week dose-response ───────────────────────────────────
-PRIMARY   = ['Aspiration PNA', 'PEG/G-tube', 'Mortality']
+PRIMARY   = ['Aspiration-related PNA', 'PEG/G-tube', 'Mortality']
 
 # OSU brand color gradient: scarlet → dark 40 → dark 60
 COMP_COL = {
@@ -272,10 +211,10 @@ COMP_ROW_LBL = {
 # y-positions: 3 outcome sections × 4 week rows + 3 headers
 ROW_Y = {
     'asp_hdr':               15.5,
-    ('Aspiration PNA','Wk1'): 14.65,
-    ('Aspiration PNA','Wk2'): 13.80,
-    ('Aspiration PNA','Wk3'): 12.95,
-    ('Aspiration PNA','Wk4'): 12.10,
+    ('Aspiration-related PNA','Wk1'): 14.65,
+    ('Aspiration-related PNA','Wk2'): 13.80,
+    ('Aspiration-related PNA','Wk3'): 12.95,
+    ('Aspiration-related PNA','Wk4'): 12.10,
     'gtube_hdr':              10.85,
     ('PEG/G-tube','Wk1'):    10.00,
     ('PEG/G-tube','Wk2'):     9.15,
@@ -322,7 +261,7 @@ def sec_header(y, text):
               fontweight='bold', color='#70071c', transform=ax_L.get_yaxis_transform())
 
 
-sec_header(ROW_Y['asp_hdr'],   'Aspiration Pneumonia')
+sec_header(ROW_Y['asp_hdr'],   'Aspiration-related Pneumonia')
 sec_header(ROW_Y['gtube_hdr'], 'PEG / G-tube Placement')
 sec_header(ROW_Y['mort_hdr'],  'All-cause Mortality')
 

@@ -220,7 +220,7 @@ with lower rates of aspiration pneumonia, dysphagia diagnoses, and G-tube placem
     <h4>Comparison A <span class="tag">Early (8&ndash;35d) vs Late (36&ndash;90d)</span></h4>
     <p>Early SLP (days 8&ndash;35, Weeks 1&ndash;4 post-discharge) vs. late outpatient SLP (days 36&ndash;90, Week 5+). Week 0 (days 1&ndash;7) is excluded as discharge-transitional care, not true outpatient rehabilitation initiation.</p>
 </div>
-<p>A supplementary week-by-week dose-response analysis (Wk1&ndash;4 each vs Wk6+) is implemented in <code>comp_week_bins.py</code>, confirming the monotone gradient that motivates the Early/Late dichotomy.</p>
+<p>A supplementary week-by-week dose-response analysis (Wk1&ndash;4 each vs Wk5+) is implemented in <code>analysis/comp_b_sensitivity.py</code>. The older Wk6+ exploration now lives in <code>archive/exploratory/comp_week_bins.py</code>.</p>
 
 <h1 id="s2">2. Pipeline Overview</h1>
 
@@ -237,12 +237,10 @@ with lower rates of aspiration pneumonia, dysphagia diagnoses, and G-tube placem
     <div class="flow-arrow">&#8594;</div>
     <div class="flow-step">stroke_psm.py</div>
     <div class="flow-arrow">&#8594;</div>
-    <div class="flow-step">stroke_analysis.py</div>
-    <div class="flow-arrow">&#8594;</div>
-    <div class="flow-step">make_stroke_table.py</div>
+    <div class="flow-step">run_analysis_outputs.py</div>
 </div>
 
-<p>All SQL steps can be run in sequence via <code>run_pipeline.py</code>. The PSM and analysis steps are run manually after verifying the SQL output tables.</p>
+<p>The full build, PSM, and manuscript-output pipeline is run via <code>run_pipeline.py</code>. To refresh figures and tables only after PSM is already complete, run <code>run_analysis_outputs.py</code>.</p>
 
 <table>
     <tr><th>#</th><th>Script</th><th>Output Table / File</th><th>Description</th></tr>
@@ -252,8 +250,7 @@ with lower rates of aspiration pneumonia, dysphagia diagnoses, and G-tube placem
     <tr><td>4</td><td><code>stroke_propensity.sql</code></td><td><code>stroke_propensity</code></td><td>Assemble analytic dataset; assign slp_timing_group; PSM columns initialized to NULL</td></tr>
     <tr><td>5</td><td><code>stroke_outcomes.sql</code></td><td><code>stroke_outcomes</code></td><td>Identify all outcomes in 365-day post-discharge window</td></tr>
     <tr><td>6</td><td><code>stroke_psm.py</code></td><td>Updates <code>stroke_propensity</code></td><td>Single 1:1 greedy PSM (Early vs Late); writes psm_matched_A back to table</td></tr>
-    <tr><td>7</td><td><code>stroke_analysis.py</code></td><td>Console / stdout</td><td>OR tables, Cox PH, KM curves, cost analysis for each comparison</td></tr>
-    <tr><td>8</td><td><code>make_stroke_table.py</code></td><td><code>stroke_slp_tables.xlsx</code></td><td>Formatted Excel workbook with all analytic tables</td></tr>
+    <tr><td>7</td><td><code>run_analysis_outputs.py</code></td><td>Figures and tables in <code>output_files/</code></td><td>Canonical manuscript output runner; calls Table 1, primary TV Cox, supplement, flowchart, and love plot scripts</td></tr>
 </table>
 
 <h1 id="s3">3. Cohort Assembly</h1>
@@ -550,8 +547,8 @@ time-varying Cox, person-time begins at discharge and the exposure switches at <
 <p>Standardized mean differences (SMD) reported pre- and post-match for all PSM covariates.
 Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
 
-<h2>8.4 Primary Results &mdash; Early vs Late (Design B)</h2>
-<p>Implemented in <code>make_results_outputs.py</code>. PSM-matched cohort (Comparison A: Early 8&ndash;35d vs Late 36&ndash;90d reference), TV Cox PH, max follow-up 365 days.</p>
+<h2>8.4 Primary Results &mdash; Early vs Late (Comparison A)</h2>
+<p>Implemented in <code>analysis/make_results_outputs.py</code>. PSM-matched cohort (Comparison A: Early 8&ndash;35d vs Late 36&ndash;90d reference), TV Cox PH, max follow-up 365 days.</p>
 <table>
     <tr><th>Outcome</th><th>N</th><th>Events</th><th>HR [95% CI]</th><th>p-value</th></tr>
     <tr><td>Aspiration-related PNA (J18+J69)</td><td>19,412</td><td>1,200 (6.2%)</td><td>0.81 [0.72&ndash;0.92]</td><td>0.0007</td></tr>
@@ -559,10 +556,11 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
     <tr><td>All-cause Mortality</td><td>19,412</td><td>1,396 (7.2%)</td><td>1.06 [0.95&ndash;1.18]</td><td>0.2913</td></tr>
 </table>
 <p><strong>Note:</strong> 9,706 matched pairs (19,412 patients). Match rate ~57% of Early pool. PS model includes <code>rucc_group</code> and <code>dual_eligible</code> as geographic/SES covariates. Unmatched Early patients are excluded from the PSM analysis but represent a generalizable group clinically; this limitation is discussed in the manuscript.</p>
+<p><strong>Comprehensive workbook:</strong> <code>analysis/make_table2.py</code> writes <code>Table2.xlsx</code>. It retains the multi-sheet descriptive OR, stratified, cost, KM, and Cox workbook structure while using the current Early vs Late cohort, J18/J69 aspiration-related pneumonia definition, PEG/G-tube exclusions, and shared time-varying Cox framework.</p>
 
-<h2>8.5 Secondary Analysis &mdash; Week-by-Week Dose-Response (comp_week_bins.py)</h2>
+<h2>8.5 Secondary Analysis &mdash; Week-by-Week Dose-Response (analysis/comp_b_sensitivity.py)</h2>
 <p><strong>Rationale:</strong> Tests whether incrementally earlier SLP produces larger benefit, consistent with a dose-response relationship motivating the Early/Late dichotomy.</p>
-<p><strong>Method:</strong> Implemented in <code>comp_week_bins.py</code> (standalone script). Four weekly bins (Wk1=8&ndash;14d, Wk2=15&ndash;21d, Wk3=22&ndash;28d, Wk4=29&ndash;35d) each matched vs. Wk6+ reference (days 43&ndash;90). Week 0 excluded. Same PSM covariates and TV Cox framework.</p>
+<p><strong>Method:</strong> Implemented in <code>analysis/comp_b_sensitivity.py</code>. Four weekly bins (Wk1=8&ndash;14d, Wk2=15&ndash;21d, Wk3=22&ndash;28d, Wk4=29&ndash;35d) each matched vs. Wk5+ reference (days 36&ndash;90). Week 0 excluded. Same PSM covariates and shared TV Cox framework.</p>
 
 <table>
     <tr><th>Parameter</th><th>Value</th></tr>
@@ -570,20 +568,12 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
     <tr><td>Wk2 (treated)</td><td>days 15&ndash;21</td></tr>
     <tr><td>Wk3 (treated)</td><td>days 22&ndash;28</td></tr>
     <tr><td>Wk4 (treated)</td><td>days 29&ndash;35</td></tr>
-    <tr><td>Reference</td><td>Wk6+ (days 43&ndash;90, n=7,070)</td></tr>
+    <tr><td>Reference</td><td>Wk5+ (days 36&ndash;90)</td></tr>
     <tr><td>PSM</td><td>Four separate 1:1 PSM runs; same covariates; match rate &gt;99%</td></tr>
     <tr><td>Analysis</td><td>TV Cox PH, max follow-up 365 days</td></tr>
 </table>
 
-<p><strong>Dose-response results (J18+J69 composite, updated PS covariates):</strong></p>
-<table>
-    <tr><th>Comparison</th><th>Asp-related PNA HR</th><th>G-tube HR</th><th>Mortality HR</th></tr>
-    <tr><td>Wk1 (8&ndash;14d) vs Wk6+</td><td>0.84* [0.71&ndash;0.99]</td><td>0.55** [0.36&ndash;0.83]</td><td>1.06 [0.91&ndash;1.24]</td></tr>
-    <tr><td>Wk2 (15&ndash;21d) vs Wk6+</td><td>0.64*** [0.53&ndash;0.76]</td><td>0.67 [0.44&ndash;1.02]</td><td>1.03 [0.89&ndash;1.20]</td></tr>
-    <tr><td>Wk3 (22&ndash;28d) vs Wk6+</td><td>0.75** [0.62&ndash;0.90]</td><td>0.46** [0.28&ndash;0.75]</td><td>0.91 [0.77&ndash;1.07]</td></tr>
-    <tr><td>Wk4 (29&ndash;35d) vs Wk6+</td><td>0.81* [0.67&ndash;0.98]</td><td>0.44** [0.26&ndash;0.74]</td><td>1.00 [0.84&ndash;1.19]</td></tr>
-</table>
-<p>* p&lt;0.05 &nbsp; ** p&lt;0.01 &nbsp; *** p&lt;0.001. G-tube shows monotone gradient (HR 0.55&rarr;0.67&rarr;0.46&rarr;0.44); aspiration-related PNA protective across all weeks with strongest effect at Wk2. Mortality null throughout. Match rates &gt;97% for all weekly comparisons.</p>
+<p><strong>Current outputs:</strong> <code>analysis/comp_b_sensitivity.py</code> writes <code>Supp_Figure2.png</code> and <code>Supp_Table2.xlsx</code>. Older Wk6+ exploratory results are archived and should not be used for manuscript tables.</p>
 
 <h2>8.6 Sensitivity &mdash; Excluding Readmit-Before-SLP Patients</h2>
 <p>The primary analysis includes all Early and Late patients regardless of <code>readmit_before_slp</code> status. A sensitivity analysis repeats the primary PSM + TV Cox <em>with</em> the additional exclusion (<code>WHERE slp_timing_group IN ('Early', 'Late') AND readmit_before_slp = FALSE</code>) to evaluate whether the readmit-before-SLP subgroup drives results. Note: this sensitivity filter creates differential healthy survivor bias (Early: 5.7% excluded vs. Late: 20.4% excluded) so results should be interpreted cautiously. Implemented by modifying the WHERE clause in <code>stroke_psm.py</code>.</p>
@@ -595,7 +585,17 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
     <tr>
         <td><code>run_pipeline.py</code></td>
         <td><code>projects/stroke_SLP/</code></td>
-        <td>Orchestrates SQL steps 1&ndash;5 in sequence</td>
+        <td>Canonical end-to-end runner: SQL table builds, comorbidity, PSM, and manuscript outputs</td>
+    </tr>
+    <tr>
+        <td><code>run_analysis_outputs.py</code></td>
+        <td><code>projects/stroke_SLP/</code></td>
+        <td>Canonical manuscript output runner; refreshes figures and tables from scripts in <code>analysis/</code> after PSM</td>
+    </tr>
+    <tr>
+        <td><code>stroke_slp_common.py</code></td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
+        <td>Shared DB/path, J18+J69 pneumonia, and time-varying Cox helpers for output scripts</td>
     </tr>
     <tr>
         <td><code>stroke_cohort.sql</code></td>
@@ -634,52 +634,52 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
     </tr>
     <tr>
         <td><code>stroke_analysis.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
-        <td>Time-varying Cox PH (primary), OR tables, KM curves, cost analysis</td>
+        <td><code>projects/stroke_SLP/archive/exploratory/</code></td>
+        <td>Exploratory console analysis; useful for checking OR/KM/cost output, not the final manuscript-output runner</td>
     </tr>
     <tr>
-        <td><code>make_stroke_table.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
-        <td>Export formatted Excel workbook</td>
+        <td><code>make_table2.py</code></td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
+        <td>Comprehensive current-method workbook (Table2.xlsx)</td>
     </tr>
     <tr>
         <td><code>comp_week_bins.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
-        <td>Secondary dose-response: Design A (Wk1&ndash;4 each vs Wk6+) + Design B (Early vs Late); PSM + TV Cox; standalone script</td>
+        <td><code>projects/stroke_SLP/archive/exploratory/</code></td>
+        <td>Exploratory design comparison: Wk1&ndash;4 each vs Wk6+ plus Early vs Late; standalone script</td>
     </tr>
     <tr>
         <td><code>comp_b_sensitivity.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
-        <td>Week-by-week dose-response sensitivity (Wk1&ndash;4 each vs Wk5+); standalone, not part of primary pipeline</td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
+        <td>Canonical supplementary week-by-week dose-response (Wk1&ndash;4 each vs Wk5+)</td>
     </tr>
     <tr>
         <td><code>comp_b_stratified.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
-        <td>Subgroup TV Cox analysis (age, sex, stroke type, discharge type, Elixhauser); standalone</td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
+        <td>Canonical supplementary subgroup TV Cox analysis</td>
     </tr>
     <tr>
         <td><code>make_flowchart.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
         <td>CONSORT-style cohort flowchart (fig1_cohort.png)</td>
     </tr>
     <tr>
         <td><code>make_table1.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
         <td>Baseline characteristics table (Table1.xlsx)</td>
     </tr>
     <tr>
         <td><code>make_results_outputs.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
         <td>Primary forest plot (Figure2.png) and TV Cox results table (Table3.xlsx)</td>
     </tr>
     <tr>
         <td><code>make_gradient_elix.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
-        <td>Elixhauser-stratified gradient plots (Supp_Figure1&ndash;4.png, Supp_Table1&ndash;3.xlsx)</td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
+        <td>Canonical supplementary Elixhauser-stratified TV Cox output (Supp_Figure1.png, Supp_Table1.xlsx)</td>
     </tr>
     <tr>
         <td><code>make_love_plot.py</code></td>
-        <td><code>projects/stroke_SLP/</code></td>
+        <td><code>projects/stroke_SLP/analysis/</code></td>
         <td>PSM covariate balance (Love) plot</td>
     </tr>
     <tr>
@@ -688,9 +688,9 @@ Balance threshold: <strong>SMD &lt; 0.1</strong> considered well-balanced.</p>
         <td>All ICD/HCPCS/PCS codes used, organized by category</td>
     </tr>
     <tr>
-        <td><code>stroke_slp_tables.xlsx</code></td>
+        <td><code>ANALYSIS_INDEX.md</code></td>
         <td><code>projects/stroke_SLP/</code></td>
-        <td>Final output workbook (generated by make_stroke_table.py)</td>
+        <td>Script status map: canonical pipeline, optional utilities, and legacy/stale programs</td>
     </tr>
 </table>
 

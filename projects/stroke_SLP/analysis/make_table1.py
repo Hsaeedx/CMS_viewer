@@ -8,27 +8,18 @@ Layout (one table, two grouped column sets):
 
 Comparison: Early SLP (Weeks 1-4, days 8-35) vs Late SLP (Week 5+, days 36-90).
 """
-import os
-from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-import duckdb
 import numpy as np
 import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 
-_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP" / "output_files"
-_out_dir.mkdir(parents=True, exist_ok=True)
-DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
-OUT_PATH = _out_dir / "Table1.xlsx"
+from stroke_slp_common import OUT_DIR, connect
+
+OUT_PATH = OUT_DIR / "Table1.xlsx"
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 print("Loading data...")
-con = duckdb.connect(str(DB_PATH), read_only=True)
-con.execute("SET memory_limit='24GB'; SET threads=12;")
+con = connect(read_only=True)
 df = con.execute("""
     SELECT
         p.DSYSRTKY,

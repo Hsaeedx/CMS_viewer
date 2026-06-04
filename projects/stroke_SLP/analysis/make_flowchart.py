@@ -5,22 +5,14 @@ Vertical (portrait, top-to-bottom) layout with 7 main boxes and 6 exclusion bran
 Upstream counts (from inp_claimsk_all) are hardcoded after a one-time query run;
 downstream counts are queried live from the stored analytic tables.
 """
-import os
-from pathlib import Path
-
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-import duckdb
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
-_out_dir = Path(os.getenv("project_paths", ".")) / "stroke_SLP" / "output_files"
-_out_dir.mkdir(parents=True, exist_ok=True)
-OUT_PATH = _out_dir / "fig1_cohort.png"
-DB_PATH  = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
+from stroke_slp_common import OUT_DIR, connect
+
+OUT_PATH = OUT_DIR / "fig1_cohort.png"
 
 # ── Upstream counts (queried 2026-04-11 from inp_claimsk_all) ─────────────────
 # Source query: C:\temp\flowchart_upstream_counts.sql
@@ -35,8 +27,7 @@ N_HOME_ELIGIBLE  =   709_138   # home discharge (STUS_CD='01'/'06'/'07')
 
 # ── Live queries (fast — against stored analytic tables) ─────────────────────
 print("Querying downstream cohort counts...")
-con = duckdb.connect(str(DB_PATH), read_only=True)
-con.execute("SET memory_limit='24GB'; SET threads=12;")
+con = connect(read_only=True)
 
 row = con.execute("""
     SELECT

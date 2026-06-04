@@ -12,15 +12,7 @@ Outputs:
   Supp_Figure3.png  — 3-outcome subgroup forest plot
   Supp_Table3.xlsx  — Full HR table
 """
-import os
-from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-import duckdb
-import numpy as np
 import pandas as pd
-from lifelines import CoxTimeVaryingFitter
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -29,14 +21,10 @@ from matplotlib.lines import Line2D
 import warnings
 warnings.filterwarnings('ignore')
 
-DB_PATH       = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
-MAX_FOLLOW    = 365
-TV_COVARIATES = ['age_at_adm', 'van_walraven_score', 'index_los']
+from stroke_slp_common import OUT_DIR, TV_COVARIATES, add_aspiration_related_pna, connect, run_tv_cox
+
 TREAT_GRP     = 'Early'
 CTRL_GRP      = 'Late'
-
-OUT_DIR = Path(__file__).parent / "output_files"
-OUT_DIR.mkdir(exist_ok=True)
 
 # OSU brand colors
 SCARLET     = '#ba0c2f'
@@ -130,8 +118,7 @@ STRATA_FN = {
 
 # ── Load primary matched cohort ────────────────────────────────────────────────
 print("Loading primary matched cohort (psm_matched_A = TRUE)...")
-con = duckdb.connect(str(DB_PATH), read_only=True)
-con.execute("SET memory_limit='24GB'; SET threads=12;")
+con = connect(read_only=True)
 df_prop = con.execute("""
     SELECT
         DSYSRTKY, slp_timing_group, days_to_slp_outpt,
@@ -150,10 +137,7 @@ df_out = con.execute("""
 con.close()
 
 df_all = df_prop.merge(df_out, on='DSYSRTKY', how='inner')
-df_all['days_to_asp_related'] = np.where(
-    df_all['first_pneumonia_code'].isin(['J18', 'J69']),
-    df_all['days_to_pneumonia'], np.nan
-)
+df_all = add_aspiration_related_pna(df_all)
 n_early = (df_all['slp_timing_group'] == 'Early').sum()
 n_late  = (df_all['slp_timing_group'] == 'Late').sum()
 print(f"  Matched cohort: {len(df_all):,} total  |  Early={n_early:,}  Late={n_late:,}")
@@ -163,93 +147,6 @@ for col in TV_COVARIATES:
 
 
 # ── Vectorized TV dataset builder ──────────────────────────────────────────────
-def build_tv_df(df, event_col, competing_col):
-    """Build person-split time-varying dataset (vectorized)."""
-    slp_day  = df['days_to_slp_outpt'].values.astype(float)
-    ev_raw   = np.array(pd.to_numeric(df[event_col],   errors='coerce'), dtype=float)
-    if competing_col:
-        cp_raw = np.array(pd.to_numeric(df[competing_col], errors='coerce'), dtype=float)
-    else:
-        cp_raw = np.full(len(df), np.nan)
-
-    ev_valid = ~np.isnan(ev_raw)
-    cp_valid = ~np.isnan(cp_raw)
-
-    end_time = np.full(len(df), float(MAX_FOLLOW))
-    end_time = np.where(ev_valid, np.minimum(end_time, ev_raw), end_time)
-    end_time = np.where(cp_valid, np.minimum(end_time, cp_raw), end_time)
-
-    final_ev = (ev_valid & (ev_raw <= MAX_FOLLOW) & (ev_raw == end_time)).astype(int)
-    grp_flag = (df['slp_timing_group'].values == TREAT_GRP).astype(int)
-    ids      = df['DSYSRTKY'].values
-
-    cov = {c: df[c].values.astype(float) for c in TV_COVARIATES}
-
-    reaches_slp = end_time > slp_day  # patient survives past their SLP day
-    has_pre_seg = reaches_slp & (slp_day > 0)
-
-    segments = []
-
-    # Segment A: censored/event before SLP day
-    mA = ~reaches_slp
-    if mA.any():
-        segments.append(pd.DataFrame({
-            'id':    ids[mA], 'start': 0.0,
-            'stop':  np.maximum(end_time[mA], 0.5),
-            'trt':   0, 'event': final_ev[mA],
-            **{c: cov[c][mA] for c in TV_COVARIATES}
-        }))
-
-    # Segment B: pre-SLP interval [0, slp_day)
-    mB = has_pre_seg
-    if mB.any():
-        segments.append(pd.DataFrame({
-            'id':    ids[mB], 'start': 0.0,
-            'stop':  slp_day[mB],
-            'trt':   0, 'event': 0,
-            **{c: cov[c][mB] for c in TV_COVARIATES}
-        }))
-
-    # Segment C: post-SLP interval [slp_day, end_time]
-    mC = reaches_slp
-    if mC.any():
-        segments.append(pd.DataFrame({
-            'id':    ids[mC], 'start': slp_day[mC],
-            'stop':  np.maximum(end_time[mC], slp_day[mC] + 0.5),
-            'trt':   grp_flag[mC], 'event': final_ev[mC],
-            **{c: cov[c][mC] for c in TV_COVARIATES}
-        }))
-
-    return pd.concat(segments, ignore_index=True) if segments else pd.DataFrame()
-
-
-def run_tv_cox(df, event_col, competing_col, min_events=10):
-    """Fit TV Cox and return (hr, lo, hi, p), n_pts, n_evts. Returns None result on failure."""
-    tv      = build_tv_df(df, event_col, competing_col)
-    n_pts   = tv['id'].nunique()
-    n_evts  = int(tv['event'].sum())
-    if n_evts < min_events:
-        return None, n_pts, n_evts
-    # Standardize covariates
-    for col in TV_COVARIATES:
-        sd = tv[col].std()
-        if sd > 0:
-            tv[col] = (tv[col] - tv[col].mean()) / sd
-    try:
-        ctv = CoxTimeVaryingFitter()
-        ctv.fit(tv, id_col='id', start_col='start', stop_col='stop',
-                event_col='event', show_progress=False)
-        r  = ctv.summary.loc['trt']
-        hr = np.exp(r['coef'])
-        lo = np.exp(r['coef lower 95%'])
-        hi = np.exp(r['coef upper 95%'])
-        p  = float(r['p'])
-        return (hr, lo, hi, p), n_pts, n_evts
-    except Exception as e:
-        print(f"    Cox failed: {e}")
-        return None, n_pts, n_evts
-
-
 # ── Run all strata × outcomes ──────────────────────────────────────────────────
 print("\nRunning TV Cox for all strata...")
 results = {}    # (key, out_key) -> (res_or_None, n_pts, n_evts)
@@ -266,7 +163,7 @@ for key in y_pos:
                 (df_sub['peg_placed'].fillna(0) == 0) &
                 (df_sub['pre_stroke_tube'].fillna(0) == 0)
             ]
-        res, n, n_ev = run_tv_cox(df_sub, ev_col, comp_col)
+        res, n, n_ev = run_tv_cox(df_sub, ev_col, comp_col, TREAT_GRP)
         results[(key, out_key)] = (res, n, n_ev)
         if res:
             hr, lo, hi, p = res

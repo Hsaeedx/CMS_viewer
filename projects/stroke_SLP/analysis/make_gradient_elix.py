@@ -7,30 +7,18 @@ make_gradient_elix.py
 2. Supp_Table1.xlsx — TV Cox HRs stratified by van Walraven quartile.
    Within each quartile, run TV Cox on the PSM-matched comparison A cohort.
 """
-import os
-from pathlib import Path
-
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-import duckdb
 import numpy as np
 import pandas as pd
-from lifelines import CoxTimeVaryingFitter
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-_out_dir      = Path(os.getenv("project_paths", ".")) / "stroke_SLP" / "output_files"
-_out_dir.mkdir(parents=True, exist_ok=True)
-DB_PATH       = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
-GRADIENT_PATH = _out_dir / "Supp_Figure1.png"
-ELIX_PATH     = _out_dir / "Supp_Table1.xlsx"
+from stroke_slp_common import OUT_DIR, add_aspiration_related_pna, connect, run_tv_cox
 
-MAX_FOLLOW = 365
-TV_COVARIATES = ['age_at_adm', 'van_walraven_score', 'index_los']
+GRADIENT_PATH = OUT_DIR / "Supp_Figure1.png"
+ELIX_PATH     = OUT_DIR / "Supp_Table1.xlsx"
 
 COMPARISONS = [
     ('A', 'Early', 'Late', 'psm_matched_A'),
@@ -45,8 +33,7 @@ OUTCOMES = [
 
 # ── Load & filter ─────────────────────────────────────────────────────────────
 print("Loading data...")
-con = duckdb.connect(str(DB_PATH), read_only=True)
-con.execute("SET memory_limit='24GB'; SET threads=12;")
+con = connect(read_only=True)
 df_all = con.execute("""
     SELECT p.DSYSRTKY, p.slp_timing_group, p.days_to_slp_outpt,
            p.age_at_adm, p.index_los, p.van_walraven_score,
@@ -60,77 +47,10 @@ con.close()
 print(f"  Loaded {len(df_all):,} rows")
 
 # J18 + J69 composite → aspiration-related PNA
-import numpy as _np
-df_all['days_to_asp_related'] = _np.where(
-    df_all['first_pneumonia_code'].isin(['J18', 'J69']),
-    df_all['days_to_pneumonia'], _np.nan
-)
+df_all = add_aspiration_related_pna(df_all)
 
 
 # ── TV Cox helpers ─────────────────────────────────────────────────────────────
-def build_tv_df(df, event_col, competing_col, treat_grp):
-    records = []
-    for _, row in df.iterrows():
-        slp_day  = float(row['days_to_slp_outpt'])
-        ev_day   = row[event_col]
-        comp_day = (row[competing_col]
-                    if competing_col and pd.notna(row[competing_col]) else np.nan)
-
-        candidates = [float(MAX_FOLLOW)]
-        if pd.notna(ev_day):   candidates.append(float(ev_day))
-        if pd.notna(comp_day): candidates.append(float(comp_day))
-        end_time = min(candidates)
-
-        final_event = int(
-            pd.notna(ev_day)
-            and float(ev_day) <= MAX_FOLLOW
-            and float(ev_day) == end_time
-        )
-        group_flag = 1 if row['slp_timing_group'] == treat_grp else 0
-        base = {col: float(row[col]) if pd.notna(row[col]) else 0.0
-                for col in TV_COVARIATES}
-
-        if end_time <= slp_day:
-            records.append({'id': row['DSYSRTKY'], 'start': 0.0,
-                            'stop': max(end_time, 0.5),
-                            'trt': 0, 'event': final_event, **base})
-        else:
-            records.append({'id': row['DSYSRTKY'], 'start': 0.0,
-                            'stop': slp_day, 'trt': 0, 'event': 0, **base})
-            records.append({'id': row['DSYSRTKY'], 'start': slp_day,
-                            'stop': max(end_time, slp_day + 0.5),
-                            'trt': group_flag, 'event': final_event, **base})
-    return pd.DataFrame(records)
-
-
-def run_tv_cox(df, event_col, competing_col, treat_grp):
-    tv = build_tv_df(df, event_col, competing_col, treat_grp)
-    tv = tv.dropna(subset=TV_COVARIATES)
-    # Standardize continuous covariates to prevent exp overflow
-    for col in ['age_at_adm', 'van_walraven_score', 'index_los']:
-        if col in tv.columns:
-            sd = tv[col].std()
-            if sd > 0:
-                tv[col] = (tv[col] - tv[col].mean()) / sd
-    n_pts  = tv['id'].nunique()
-    n_evts = int(tv['event'].sum())
-    if n_evts < 10:
-        return None, n_pts, n_evts
-    try:
-        ctv = CoxTimeVaryingFitter()
-        ctv.fit(tv, id_col='id', start_col='start', stop_col='stop',
-                event_col='event', show_progress=False)
-        r    = ctv.summary.loc['trt']
-        hr   = np.exp(r['coef'])
-        lo95 = np.exp(r['coef lower 95%'])
-        hi95 = np.exp(r['coef upper 95%'])
-        p    = r['p']
-        return (hr, lo95, hi95, p), n_pts, n_evts
-    except Exception as e:
-        print(f"    ERROR: {e}")
-        return None, n_pts, n_evts
-
-
 # ── Run all comparisons × outcomes ────────────────────────────────────────────
 print("\nRunning TV Cox models...")
 main_results = {}   # (comp_label, out_label) -> (hr, lo, hi, p) or None
@@ -329,7 +249,7 @@ ws.title = 'Elix_Stratified'
 
 ws.append(['Table: TV Cox Results Stratified by Elixhauser Comorbidity (van Walraven Score)'])
 ws['A1'].font = TITLE_FONT
-ws.append([f'Reference: SLP 31\u201390d  \u2022  '
+ws.append([f'Reference: Late SLP (36\u201390d)  \u2022  '
            f'Quartile cutpoints: Q1\u2264{q1:.0f}, Q2\u2264{q2:.0f}, Q3\u2264{q3:.0f}  \u2022  '
            f'PSM-matched cohort  \u2022  Max follow-up 365 days'])
 ws['A2'].font = Font(italic=True, size=10, color='555555')

@@ -9,23 +9,14 @@ PSM covariates mirror those used in stroke_psm.py.
 
 Output: output_files/Supp_Figure4.png
 """
-import os
-from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-import duckdb
 import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 
-DB_PATH = Path(os.getenv("duckdb_database", "cms_data.duckdb"))
-OUT_DIR = Path(__file__).parent / "output_files"
-OUT_DIR.mkdir(exist_ok=True)
+from stroke_slp_common import OUT_DIR, connect
 
 TREAT_GRP = 'Early'
 CTRL_GRP  = 'Late'
@@ -63,8 +54,7 @@ def smd(x, treated):
 
 # ── Load data ───────────────────────────────────────────────────────────────────
 print("Loading propensity data...")
-con = duckdb.connect(str(DB_PATH), read_only=True)
-con.execute("SET memory_limit='24GB'; SET threads=12;")
+con = connect(read_only=True)
 df_raw = con.execute("""
     SELECT
         DSYSRTKY, slp_timing_group, psm_matched_A,

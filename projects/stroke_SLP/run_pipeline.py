@@ -7,7 +7,7 @@ Runs the stroke+SLP pipeline in order:
   4. stroke_propensity.sql
   5. stroke_outcomes.sql
   6. stroke_psm.py                (subprocess)
-  7. stroke_analysis.py           (subprocess)
+  7. run_analysis_outputs.py      (subprocess)
 
 Each SQL file is split on semicolons and executed statement-by-statement.
 SELECT results are printed after each step.
@@ -43,7 +43,7 @@ STEPS_SQL = {
 STEPS_PY = {
     3: ("3 - Comorbidity", PROJECT_DIR / "build_stroke_comorbidity.py"),
     6: ("6 - PSM",         PROJECT_DIR / "stroke_psm.py"),
-    7: ("7 - Analysis",    PROJECT_DIR / "stroke_analysis.py"),
+    7: ("7 - Outputs",     PROJECT_DIR / "run_analysis_outputs.py"),
 }
 
 
