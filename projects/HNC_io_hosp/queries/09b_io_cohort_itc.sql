@@ -1,6 +1,7 @@
 -- Step 9b: ITT cohort — same as io_cohort but without curative therapy requirement
--- Includes all HNC+IO patients meeting FFS/geography/ESRD/180-day criteria,
--- regardless of documented prior curative-intent surgery or radiation.
+-- or 180-day dx-to-IO restriction. Includes all HNC+IO patients meeting
+-- FFS/geography/ESRD criteria, regardless of documented prior curative-intent
+-- surgery or radiation or time from diagnosis to IO start.
 -- had_prior_curative_therapy flag (1/0) distinguishes the two populations.
 -- Output: io_cohort_itc
 
@@ -72,5 +73,4 @@ JOIN io_episodes ep ON d.DSYSRTKY = ep.DSYSRTKY
 -- LEFT JOIN curative: keeps patients without documented prior therapy
 LEFT JOIN io_curative cur ON d.DSYSRTKY = cur.DSYSRTKY
 
--- Step 8: >=180 days from HNC dx to last IO episode start
-WHERE datediff('day', hnc.first_hnc_dx_date, ep.last_io_episode_start) >= 180;
+;

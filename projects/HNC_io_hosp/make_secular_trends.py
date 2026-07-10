@@ -13,7 +13,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
 DB_PATH  = r"F:\CMS\cms_data.duckdb"
-OUT_PATH = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\secular_trends.xlsx"
+OUT_PATH = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\tables\secular_trends.xlsx"
 
 print("Loading io_analytic...")
 con = duckdb.connect(DB_PATH, read_only=True)
@@ -74,12 +74,12 @@ def group_stats(g):
 
     return {
         'N': f"{n:,}",
-        'Hospice enrolled': hospice_pct,
-        'Hospice LOS, median (IQR)': los_med,
-        'Hospice LOS ≤7 days': short_pct,
-        'IO ≤14d before death': io14_pct,
-        'IO ≤30d before death': io30_pct,
-        'In-hospital death': inh_pct,
+        'Hospice enrolled, n (%)': hospice_pct,
+        'Median hospice LOS, days (IQR)†': los_med,
+        'Short stay ≤7 days, n (%)†': short_pct,
+        'ICI within 14d of death, n (%)': io14_pct,
+        'ICI within 30d of death, n (%)': io30_pct,
+        'In-hospital death, n (%)': inh_pct,
     }
 
 # ── Build table ────────────────────────────────────────────────────────────────
@@ -100,27 +100,29 @@ total_row.update(total_stats)
 rows.append(total_row)
 
 df_out = pd.DataFrame(rows)
-col_order = ['Year', 'N', 'Hospice enrolled', 'Hospice LOS, median (IQR)',
-             'Hospice LOS ≤7 days', 'IO ≤14d before death',
-             'IO ≤30d before death', 'In-hospital death']
+col_order = ['Year', 'N', 'Hospice enrolled, n (%)',
+             'Median hospice LOS, days (IQR)†', 'Short stay ≤7 days, n (%)†',
+             'ICI within 14d of death, n (%)', 'ICI within 30d of death, n (%)',
+             'In-hospital death, n (%)']
 df_out = df_out[col_order]
 
 # ── Write Excel ────────────────────────────────────────────────────────────────
 print(f"Writing {OUT_PATH} ...")
 
 HEADER_FILL  = PatternFill('solid', fgColor='BA0C2F')
-HEADER_FONT  = Font(bold=True, color='FFFFFF', size=10)
+HEADER_FONT  = Font(name='Times New Roman', bold=True, color='FFFFFF', size=11)
+BODY_FONT    = Font(name='Times New Roman', size=11)
 SECTION_FILL = PatternFill('solid', fgColor='F5D0D6')
-SECTION_FONT = Font(bold=True, size=10, color='7A0820')
+SECTION_FONT = Font(name='Times New Roman', bold=True, size=11, color='7A0820')
 ALT_FILL     = PatternFill('solid', fgColor='F9ECEE')
 TOTAL_FILL   = PatternFill('solid', fgColor='F5D0D6')
-TITLE_FONT   = Font(bold=True, size=13, color='BA0C2F')
+TITLE_FONT   = Font(name='Times New Roman', bold=True, size=12, color='BA0C2F')
 
 wb = openpyxl.Workbook()
 ws = wb.active
 ws.title = 'Secular Trends'
 
-ws.append([f'End-of-Life Care Outcomes by Year of Death (N = {N:,})'])
+ws.append(['Supplementary Table 2. End-of-Life Care Outcomes by Year of Death'])
 ws['A1'].font = TITLE_FONT
 ws.append([])
 
@@ -143,8 +145,10 @@ for row_idx, row_series in enumerate(df_out.iterrows()):
         if is_total:
             cell.font = SECTION_FONT
             cell.fill = TOTAL_FILL
-        elif row_idx % 2 == 1:
-            cell.fill = ALT_FILL
+        else:
+            cell.font = BODY_FONT
+            if row_idx % 2 == 1:
+                cell.fill = ALT_FILL
         cell.alignment = Alignment(
             horizontal='left' if ci == 1 else 'center',
             vertical='center', wrap_text=True)
@@ -158,11 +162,15 @@ ws.freeze_panes = f'B{header_row + 1}'
 
 footer_row = ws.max_row + 2
 ws.cell(row=footer_row, column=1,
-        value='LOS = length of stay. IO = immune checkpoint inhibitor. '
+        value='LOS = length of stay. ICI = immune checkpoint inhibitor. '
               'Hospice LOS ≤7 days reported among hospice enrollees. '
-              'IO ≤14d and IO ≤30d before death reported in full cohort. '
+              'ICI ≤14d and ICI ≤30d before death reported in full cohort. '
               'Year = calendar year of death.')
-ws.cell(row=footer_row, column=1).font = Font(italic=True, size=8, color='555555')
+ws.cell(row=footer_row, column=1).font = Font(name='Times New Roman', italic=True, size=11, color='555555')
 
 wb.save(OUT_PATH)
 print(f"Saved: {OUT_PATH}")
+
+from utils import export_xlsx_to_png
+FIGURES_DIR = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\figures"
+export_xlsx_to_png(OUT_PATH, FIGURES_DIR)

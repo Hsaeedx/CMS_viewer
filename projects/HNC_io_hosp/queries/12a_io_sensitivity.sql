@@ -52,10 +52,11 @@ SELECT
     pm.median_interdose_days,
     pm.n_intervals,
     CASE
-        WHEN pm.median_interdose_days IS NULL THEN 'single-dose'
-        WHEN pm.median_interdose_days <= 21   THEN 'q2w'
-        WHEN pm.median_interdose_days <= 35   THEN 'q3w'
-        WHEN pm.median_interdose_days <= 56   THEN 'q6w'
+        WHEN pm.median_interdose_days IS NULL             THEN 'single-dose'
+        WHEN pm.median_interdose_days BETWEEN 11 AND 17   THEN 'q2w'
+        WHEN pm.median_interdose_days BETWEEN 18 AND 24   THEN 'q3w'
+        WHEN pm.median_interdose_days BETWEEN 25 AND 31   THEN 'q4w'
+        WHEN pm.median_interdose_days BETWEEN 39 AND 45   THEN 'q6w'
         ELSE 'other'
     END AS estimated_regimen,
     -- Discontinued threshold: median interval + 14-day tolerance

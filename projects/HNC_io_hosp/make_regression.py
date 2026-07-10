@@ -15,7 +15,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
 DB_PATH  = r"F:\CMS\cms_data.duckdb"
-OUT_PATH = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\table3_regression.xlsx"
+OUT_PATH = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\tables\table3_regression.xlsx"
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 print("Loading io_analytic...")
@@ -53,6 +53,8 @@ df['race_collapsed'] = df['race'].replace({
     'Unknown': 'Other/Unknown',
 })
 
+df['io_regimen'] = df['io_regimen'].replace({'IO monotherapy': 'ICI monotherapy', 'chemo-IO': 'chemo-ICI'})
+
 # Set reference categories using categorical dtype
 cat_vars = {
     'sex':                ('Male', ['Male', 'Female']),
@@ -61,7 +63,7 @@ cat_vars = {
     'census_region':      ('South', ['Northeast', 'Midwest', 'South', 'West', 'Unknown']),
     'subsite_category':   None,
     'io_agent':           ('pembrolizumab', None),
-    'io_regimen':         ('IO monotherapy', ['IO monotherapy', 'chemo-IO']),
+    'io_regimen':         ('ICI monotherapy', ['ICI monotherapy', 'chemo-ICI']),
     'primary_curative_type': ('radiation', None),
 }
 
@@ -118,22 +120,60 @@ def extract_results(model):
     conf = model.conf_int()
     pval = model.pvalues
     results = pd.DataFrame({
-        'term': coef.index,
-        'coef': coef.values,
+        'term':  coef.index,
+        'coef':  coef.values,
         'ci_lo': conf[0].values,
         'ci_hi': conf[1].values,
-        'pval': pval.values,
+        'pval':  pval.values,
     })
     results['OR']    = np.exp(results['coef'])
     results['CI_lo'] = np.exp(results['ci_lo'])
     results['CI_hi'] = np.exp(results['ci_hi'])
-    results = results[results['term'] != 'Intercept']
+    results = results[results['term'] != 'Intercept'].copy()
     return results
 
 res3 = extract_results(model3)
 res4 = extract_results(model4)
 
-# ── Format results ────────────────────────────────────────────────────────────
+# ── Variable group ordering with reference categories ────────────────────────
+# Each entry: (display_label, raw_prefix, reference_label)
+GROUP_ORDER = [
+    ('Age at death (per year)',                  'age_at_death',          None),
+    ('Sex',                                      'C(sex)',                'Male'),
+    ('Race/ethnicity',                           'C(race_collapsed)',     'White'),
+    ('Dual eligible (Medicaid)',                 'dual_eligible',         None),
+    ('Urban/rural',                              'C(urban_rural)',        'Metro'),
+    ('Census region',                            'C(census_region)',      'South'),
+    ('HNC subsite',                              'C(subsite_category)',   None),
+    ('ICI agent',                                'C(io_agent)',           'pembrolizumab'),
+    ('ICI regimen',                              'C(io_regimen)',         'ICI monotherapy'),
+    ('ICI doses in final episode (per dose)',    'last_episode_doses',    None),
+    ('van Walraven score (per unit)',             'van_walraven_score',    None),
+    ('Prior curative therapy',                   'C(primary_curative_type)', 'radiation'),
+    ('Calendar year (per year from 2017)',        'death_year_c',         None),
+]
+
+TERM_LABEL_MAP = {
+    'age_at_death':       'Age at death (per year)',
+    'dual_eligible':      'Dual eligible (Medicaid)',
+    'last_episode_doses': 'ICI doses in final episode (per dose)',
+    'van_walraven_score': 'van Walraven score (per unit)',
+    'death_year_c':       'Calendar year (per year from 2017)',
+}
+
+def clean_term(t):
+    """Convert statsmodels term name to readable indented label."""
+    for raw, readable in TERM_LABEL_MAP.items():
+        if t == raw:
+            return readable
+    # Categorical: C(var)[T.level]
+    import re
+    m = re.match(r'C\((\w+)\)\[T\.(.+)\]', t)
+    if m:
+        level = m.group(2)
+        return f'  {level}'
+    return t
+
 def fmt_or(row):
     return f"{row['OR']:.2f} ({row['CI_lo']:.2f}–{row['CI_hi']:.2f})"
 
@@ -142,52 +182,83 @@ def fmt_p(p):
         return '<0.001'
     return f'{p:.3f}'
 
-def clean_term(t):
-    """Convert statsmodels term name to readable label."""
-    t = t.replace('C(sex)[T.', 'Sex: ').replace('C(race)[T.', 'Race: ')
-    t = t.replace('C(urban_rural)[T.', 'Urban/rural: ').replace('C(census_region)[T.', 'Region: ')
-    t = t.replace('C(subsite_category)[T.', 'Subsite: ').replace('C(io_agent)[T.', 'IO agent: ')
-    t = t.replace('C(io_regimen)[T.', 'IO regimen: ')
-    t = t.replace('C(elixhauser_cat)[T.', 'Elixhauser: ').replace('C(primary_curative_type)[T.', 'Prior tx: ')
-    t = t.replace(']', '')
-    t = t.replace('age_at_death', 'Age at death (per year)')
-    t = t.replace('dual_eligible', 'Dual eligible')
-    t = t.replace('last_episode_doses', 'Last episode IO doses (per dose)')
-    t = t.replace('death_year_c', 'Calendar year (per year from 2017)')
-    return t
+def build_display_rows(res):
+    """Build ordered display rows with reference category placeholders."""
+    rows = []
+    used = set()
+
+    for group_label, prefix, ref_label in GROUP_ORDER:
+        # Find all terms for this variable
+        if prefix.startswith('C('):
+            mask = res['term'].str.startswith(prefix)
+        else:
+            mask = res['term'] == prefix
+
+        group_terms = res[mask].copy()
+        if group_terms.empty and prefix not in res['term'].values:
+            continue
+
+        # Section header row
+        rows.append({'label': group_label, 'or_ci': '', 'p_fmt': '', 'is_section': True, 'significant': False})
+
+        # Reference row (for categorical variables)
+        if ref_label is not None:
+            rows.append({'label': f'  {ref_label} (ref)', 'or_ci': '1.00  (—)', 'p_fmt': 'ref',
+                         'is_section': False, 'significant': False, 'is_ref': True})
+
+        # Non-ref terms
+        for _, row in group_terms.iterrows():
+            rows.append({
+                'label':       clean_term(row['term']),
+                'or_ci':       fmt_or(row),
+                'p_fmt':       fmt_p(row['pval']),
+                'is_section':  False,
+                'significant': row['pval'] < 0.05,
+                'is_ref':      False,
+            })
+            used.add(row['term'])
+
+    df = pd.DataFrame(rows)
+    for col in ['is_ref', 'significant']:
+        if col not in df.columns:
+            df[col] = False
+        df[col] = df[col].fillna(False).astype(bool)
+    return df
 
 for res in [res3, res4]:
-    res['label']  = res['term'].apply(clean_term)
-    res['or_ci']  = res.apply(fmt_or, axis=1)
-    res['p_fmt']  = res['pval'].apply(fmt_p)
+    res['label'] = res['term'].apply(clean_term)
+    res['or_ci'] = res.apply(fmt_or, axis=1)
+    res['p_fmt'] = res['pval'].apply(fmt_p)
+
+df_display3 = build_display_rows(res3)
+df_display4 = build_display_rows(res4)
 
 # ── Write Excel ────────────────────────────────────────────────────────────────
 print(f"Writing {OUT_PATH} ...")
 
-HEADER_FILL = PatternFill('solid', fgColor='BA0C2F')
-HEADER_FONT = Font(bold=True, color='FFFFFF', size=10)
-ALT_FILL    = PatternFill('solid', fgColor='F9ECEE')
-SIG_FILL    = PatternFill('solid', fgColor='FFE699')
-TITLE_FONT  = Font(bold=True, size=13, color='BA0C2F')
-REF_FONT    = Font(italic=True, size=9, color='888888')
+HEADER_FILL  = PatternFill('solid', fgColor='BA0C2F')
+HEADER_FONT  = Font(name='Times New Roman', bold=True, color='FFFFFF', size=11)
+BODY_FONT    = Font(name='Times New Roman', size=11)
+SECTION_FILL = PatternFill('solid', fgColor='F5D0D6')
+SECTION_FONT = Font(name='Times New Roman', bold=True, size=11, color='7A0820')
+ALT_FILL     = PatternFill('solid', fgColor='F9ECEE')
+SIG_FILL     = PatternFill('solid', fgColor='FFE699')
+REF_FILL     = PatternFill('solid', fgColor='F0F0F0')
+TITLE_FONT   = Font(name='Times New Roman', bold=True, size=12, color='BA0C2F')
+REF_FONT     = Font(name='Times New Roman', italic=True, size=11, color='888888')
 
 wb = openpyxl.Workbook()
 
-for sheet_name, res, outcome_label, n_outcome in [
-    ('Table 3 - Hospice',  res3, 'Hospice Enrollment', df_model['hospice_enrolled'].sum()),
-    ('Table 4 - In-Hosp Death', res4, 'In-Hospital Death', df_model['in_hospital_death'].sum()),
+for sheet_name, table_num, df_disp, outcome_label, n_outcome in [
+    ('Table 3 - Hospice',       'Table 3', df_display3, 'Hospice Enrollment',  df_model['hospice_enrolled'].sum()),
+    ('Table 4 - In-Hosp Death', 'Table 4', df_display4, 'In-Hospital Death',   df_model['in_hospital_death'].sum()),
 ]:
     ws = wb.create_sheet(title=sheet_name)
 
-    ws.append([f'Multivariable Logistic Regression: {outcome_label} '
+    ws.append([f'{table_num}. Multivariable Logistic Regression: {outcome_label} '
                f'(n events = {int(n_outcome):,} / {len(df_model):,})'])
     ws['A1'].font = TITLE_FONT
     ws.append([])
-
-    # Split into significant and non-significant
-    res_sig   = res[res['pval'] < 0.05].copy()
-    res_ns    = res[res['pval'] >= 0.05].copy()
-    ns_labels = ', '.join(res_ns['label'].tolist())
 
     hr = ws.max_row + 1
     for ci, cn in enumerate(['Variable', 'OR (95% CI)', 'p-value'], 1):
@@ -195,27 +266,41 @@ for sheet_name, res, outcome_label, n_outcome in [
         cell.font = HEADER_FONT
         cell.fill = HEADER_FILL
         cell.alignment = Alignment(horizontal='left' if ci == 1 else 'center',
-                                    wrap_text=True, vertical='center')
+                                   wrap_text=True, vertical='center')
 
-    for i, row in enumerate(res_sig.itertuples(index=False), hr + 1):
-        for ci, val in enumerate([row.label, row.or_ci, row.p_fmt], 1):
-            cell = ws.cell(row=i, column=ci, value=val)
+    for ri, row in enumerate(df_disp.itertuples(index=False), hr + 1):
+        is_sec = row.is_section
+        is_ref = getattr(row, 'is_ref', False)
+        is_sig = getattr(row, 'significant', False)
+
+        vals = [row.label, row.or_ci, row.p_fmt]
+        for ci, val in enumerate(vals, 1):
+            cell = ws.cell(row=ri, column=ci, value=val)
+            if is_sec:
+                cell.font = SECTION_FONT
+                cell.fill = SECTION_FILL
+            elif is_ref:
+                cell.font = REF_FONT
+                cell.fill = REF_FILL
+            else:
+                cell.font = BODY_FONT
+                if is_sig:
+                    cell.fill = SIG_FILL
             cell.alignment = Alignment(
                 horizontal='left' if ci == 1 else 'center', vertical='center')
-            cell.fill = SIG_FILL
 
-    ws.column_dimensions['A'].width = 44
+    ws.column_dimensions['A'].width = 46
     ws.column_dimensions['B'].width = 24
     ws.column_dimensions['C'].width = 12
     ws.freeze_panes = f'B{hr + 1}'
 
     footer = ws.max_row + 2
     ws.cell(row=footer, column=1,
-            value=f'Showing only variables with p<0.05 (n={len(res_sig)} of {len(res)} terms). '
-                  f'Model also adjusted for: {ns_labels}. '
-                  f'OR = odds ratio; CI = 95% confidence interval. '
-                  f'Reference: Male, White, Metro, South, IO monotherapy, radiation (curative).')
-    ws.cell(row=footer, column=1).font = Font(italic=True, size=8, color='555555')
+            value='OR = odds ratio; CI = 95% confidence interval. '
+                  'Highlighted rows (yellow) = p<0.05. '
+                  'Reference categories shown in italics. '
+                  'Continuous variables interpreted as per-unit change.')
+    ws.cell(row=footer, column=1).font = Font(name='Times New Roman', italic=True, size=11, color='555555')
 
 # Remove default empty sheet
 if 'Sheet' in wb.sheetnames:
@@ -225,3 +310,7 @@ wb.save(OUT_PATH)
 print(f"Saved: {OUT_PATH}")
 print(f"\nModel 3 (hospice): pseudo-R² = {model3.prsquared:.3f}, AIC = {model3.aic:.1f}")
 print(f"Model 4 (in-hosp): pseudo-R² = {model4.prsquared:.3f}, AIC = {model4.aic:.1f}")
+
+from utils import export_xlsx_to_png
+FIGURES_DIR = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\figures"
+export_xlsx_to_png(OUT_PATH, FIGURES_DIR)

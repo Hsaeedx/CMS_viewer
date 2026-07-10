@@ -1,11 +1,11 @@
 """
 make_figures.py
-Figure 1: Hospice enrollment rate by year (bar chart)
-Figure 2: Distribution of days from last IO to death (histogram)
-Figure 3: Hospice LOS distribution among enrolled patients (histogram)
-Output: C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig1_hospice_by_year.png
-        C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig2_days_io_to_death.png
-        C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig3_hospice_los.png
+Figure 2: Hospice enrollment rate by year (bar chart)
+Figure 3: Distribution of days from last IO to death (histogram)
+Figure 4: Hospice LOS distribution among enrolled patients (histogram)
+Output: C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig2_hospice_by_year.png
+        C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig3_days_io_to_death.png
+        C:/Users/hsaee/Desktop/CMS_viewer/projects/HNC_io_hosp/fig4_hospice_los.png
 """
 import sys
 sys.path.insert(0, r'C:\users\hsaee\desktop\cms_viewer\env\Lib\site-packages')
@@ -42,8 +42,8 @@ con.close()
 
 df['hospice_enrolled'] = df['hospice_enrolled'].fillna(0).astype(int)
 
-# ── Figure 1: Hospice enrollment rate by year ─────────────────────────────────
-print("Figure 1: hospice by year...")
+# ── Figure 2: Hospice enrollment rate by year ─────────────────────────────────
+print("Figure 2: hospice by year...")
 
 yr_data = (df.groupby('death_year')
              .agg(total=('hospice_enrolled', 'count'),
@@ -78,7 +78,7 @@ ax.plot(x_line, p(x_line), color=ACCENT, lw=2, linestyle='--', label='Linear tre
 
 ax.set_xlabel('Year of Death', fontsize=11)
 ax.set_ylabel('Hospice Enrollment Rate (%)', fontsize=11)
-ax.set_title('Figure 1. Hospice Enrollment Rate Among HNC Patients\nReceiving Immune Checkpoint Inhibitors, 2017–2023',
+ax.set_title('Figure 2. Annual Hospice Enrollment Rate Among HNC Patients Receiving ICI',
              fontsize=12, fontweight='bold', color=PRIMARY, pad=12)
 ax.set_ylim(0, max(yr_data_sorted['rate']) * 1.25)
 ax.xaxis.set_major_locator(mticker.MaxNLocator(integer=True))
@@ -89,35 +89,36 @@ ax.yaxis.grid(True, alpha=0.3, linestyle=':')
 ax.set_axisbelow(True)
 
 plt.tight_layout()
-out1 = f"{OUT_DIR}\\fig1_hospice_by_year.png"
+out1 = f"{OUT_DIR}\\figures\\fig2_hospice_by_year.png"
 plt.savefig(out1, dpi=300, bbox_inches='tight', facecolor='white')
 plt.close()
 print(f"  Saved: {out1}")
 
-# ── Figure 2: Days from last IO to death ─────────────────────────────────────
-print("Figure 2: days last IO to death...")
+# ── Figure 3: Days from last ICI to death ─────────────────────────────────────
+print("Figure 3: days last ICI to death...")
 
 days = df['days_last_io_to_death'].dropna()
-days_clip = days.clip(upper=365)  # cap at 1 year for display
+days_clip = days[days <= 365]
 
-fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+fig, axes = plt.subplots(2, 1, figsize=(9, 11))
 fig.patch.set_facecolor('white')
 
-# Left: histogram
+# Panel A: histogram
 ax = axes[0]
 ax.hist(days_clip, bins=40, color=PRIMARY, edgecolor='white', linewidth=0.5)
 ax.axvline(days.median(), color=ACCENT, lw=2, linestyle='--',
            label=f'Median = {days.median():.0f} days')
-ax.set_xlabel('Days from Last IO Dose to Death', fontsize=10)
+ax.set_xlabel('Days from Last ICI Dose to Death', fontsize=10)
 ax.set_ylabel('Number of Patients', fontsize=10)
-ax.set_title('Distribution (capped at 365 days)', fontsize=10, fontweight='bold', color=PRIMARY)
+ax.set_title('A.  Distribution', fontsize=10, fontweight='bold',
+             color=PRIMARY, loc='left')
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.legend(fontsize=9)
 ax.yaxis.grid(True, alpha=0.3, linestyle=':')
 ax.set_axisbelow(True)
 
-# Right: bar chart by category
+# Panel B: bar chart by category
 ax = axes[1]
 cat_order = ['<=3 days', '4-14 days', '15-30 days', '31-90 days', '>90 days']
 cat_labels = ['≤3', '4–14', '15–30', '31–90', '>90']
@@ -133,48 +134,48 @@ for i, (bar, n, p) in enumerate(zip(bars, cat_counts, cat_pcts)):
 
 ax.set_xticks(range(len(cat_order)))
 ax.set_xticklabels(cat_labels)
-ax.set_xlabel('Days from Last IO Dose to Death', fontsize=10)
+ax.set_xlabel('Days from Last ICI Dose to Death', fontsize=10)
 ax.set_ylabel('Patients (%)', fontsize=10)
-ax.set_title('By Time Category', fontsize=10, fontweight='bold', color=PRIMARY)
+ax.set_title('B.  By Time Category', fontsize=10, fontweight='bold', color=PRIMARY, loc='left')
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.yaxis.grid(True, alpha=0.3, linestyle=':')
 ax.set_axisbelow(True)
 
-fig.suptitle('Figure 2. Timing from Last IO Dose to Death',
-             fontsize=12, fontweight='bold', color=PRIMARY, y=1.01)
-plt.tight_layout()
-out2 = f"{OUT_DIR}\\fig2_days_io_to_death.png"
+fig.suptitle('Figure 3. Timing from Last ICI Dose to Death',
+             fontsize=12, fontweight='bold', color=PRIMARY)
+plt.tight_layout(rect=[0, 0, 1, 0.97])
+out2 = f"{OUT_DIR}\\figures\\fig3_days_io_to_death.png"
 plt.savefig(out2, dpi=300, bbox_inches='tight', facecolor='white')
 plt.close()
 print(f"  Saved: {out2}")
 
-# ── Figure 3: Hospice LOS distribution ───────────────────────────────────────
-print("Figure 3: hospice LOS...")
+# ── Figure 4: Hospice LOS distribution ───────────────────────────────────────
+print("Figure 4: hospice LOS...")
 
 hosp = df[df['hospice_enrolled'] == 1].copy()
 los  = hosp['hospice_los_days'].dropna()
 
-fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+fig, axes = plt.subplots(2, 1, figsize=(9, 11))
 fig.patch.set_facecolor('white')
 
-# Left: histogram (capped at 180 days)
+# Panel A: histogram (capped at 180 days)
 ax = axes[0]
-los_clip = los.clip(upper=180)
+los_clip = los[los <= 180]
 ax.hist(los_clip, bins=36, color=GREEN, edgecolor='white', linewidth=0.5)
 ax.axvline(7, color=ACCENT, lw=1.8, linestyle='--', label='7-day threshold')
 ax.axvline(los.median(), color='#843C0C', lw=2, linestyle=':',
            label=f'Median = {los.median():.0f} days')
-ax.set_xlabel('Hospice LOS (days, capped at 180)', fontsize=10)
+ax.set_xlabel('Hospice LOS (Days)', fontsize=10)
 ax.set_ylabel('Number of Patients', fontsize=10)
-ax.set_title('Distribution', fontsize=10, fontweight='bold', color=PRIMARY)
+ax.set_title('A.  Distribution', fontsize=10, fontweight='bold', color=PRIMARY, loc='left')
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.legend(fontsize=9)
 ax.yaxis.grid(True, alpha=0.3, linestyle=':')
 ax.set_axisbelow(True)
 
-# Right: LOS category bar chart
+# Panel B: LOS category bar chart
 ax = axes[1]
 los_cats = [
     ('1–3 days',  los <= 3),
@@ -197,16 +198,16 @@ for bar, n, p in zip(bars, cat_n, cat_p):
 ax.set_xticks(range(len(cat_labels2)))
 ax.set_xticklabels(cat_labels2, rotation=20, ha='right')
 ax.set_ylabel('Hospice-Enrolled Patients (%)', fontsize=10)
-ax.set_title('By LOS Category', fontsize=10, fontweight='bold', color=PRIMARY)
+ax.set_title('B.  By LOS Category', fontsize=10, fontweight='bold', color=PRIMARY, loc='left')
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.yaxis.grid(True, alpha=0.3, linestyle=':')
 ax.set_axisbelow(True)
 
-fig.suptitle(f'Figure 3. Hospice Length of Stay Among Enrolled Patients (n = {len(hosp):,})',
-             fontsize=12, fontweight='bold', color=PRIMARY, y=1.01)
-plt.tight_layout()
-out3 = f"{OUT_DIR}\\fig3_hospice_los.png"
+fig.suptitle(f'Figure 4. Hospice Length of Stay Among Enrolled Patients (n = {len(hosp):,})',
+             fontsize=12, fontweight='bold', color=PRIMARY)
+plt.tight_layout(rect=[0, 0, 1, 0.97])
+out3 = f"{OUT_DIR}\\figures\\fig4_hospice_los.png"
 plt.savefig(out3, dpi=300, bbox_inches='tight', facecolor='white')
 plt.close()
 print(f"  Saved: {out3}")
