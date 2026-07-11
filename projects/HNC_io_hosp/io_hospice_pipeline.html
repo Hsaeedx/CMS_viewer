@@ -309,7 +309,7 @@
 <div class="header-block">
     <h1>ICI Hospice Study: Cohort Assembly Pipeline</h1>
     <p>Aggressiveness of End-of-Life Care Among Medicare Beneficiaries with Head and Neck Cancer Who Received Immune Checkpoint Inhibitors</p>
-    <p><strong>Study Period:</strong> January 1, 2017 – June 30, 2023 | <strong>Version:</strong> 1.6 | <strong>Last Updated:</strong> March 2026 | <strong>Final N:</strong> 2,527 (primary) · 3,344 (expanded)</p>
+    <p><strong>Study Period:</strong> January 1, 2017 – June 30, 2023 | <strong>Version:</strong> 1.7 | <strong>Last Updated:</strong> July 2026 | <strong>Final N:</strong> 2,527 (primary) · 5,302 (expanded ITT)</p>
 </div>
 
 <div class="toc">
@@ -370,14 +370,20 @@
     <tr>
         <td>Outpatient Revenue (out_revenuek_all)</td>
         <td><span class="badge badge-outpatient">OUTPATIENT</span></td>
-        <td>DSYSRTKY, THRU_DT, REV_DT, HCPCS_CD</td>
-        <td>ICI claims, radiation, surgery CPTs (HCPCS at revenue line level only)</td>
+        <td>DSYSRTKY, CLAIMNO, THRU_DT, REV_DT, HCPCS_CD, REV_CNTR</td>
+        <td>ICI claims, radiation, surgery CPTs (HCPCS at revenue line level only). REV_CNTR = revenue center code — used to identify outpatient ED encounters (0450–0459)</td>
     </tr>
     <tr>
         <td>Inpatient (inp_claimsk_all)</td>
         <td><span class="badge badge-inpatient">INPATIENT</span></td>
-        <td>DSYSRTKY, ADMSN_DT, DSCHRGDT, STUS_CD, PRNCPAL_DGNS_CD, ICD_DGNS_CD1–ICD_DGNS_CD25, ICD_PRCDR_CD1–ICD_PRCDR_CD25, PRCDR_DT1–PRCDR_DT25</td>
-        <td>Surgical procedures, in-hospital death, inpatient admissions within 30 days of death</td>
+        <td>DSYSRTKY, CLAIMNO, ADMSN_DT, DSCHRGDT, STUS_CD, TYPE_ADM, SRC_ADMS, PRNCPAL_DGNS_CD, ICD_DGNS_CD1–ICD_DGNS_CD25, ICD_PRCDR_CD1–ICD_PRCDR_CD25, PRCDR_DT1–PRCDR_DT25</td>
+        <td>Surgical procedures, in-hospital death, inpatient admissions within 30 days of death. TYPE_ADM = '1' identifies emergency admissions (used for admitted-from-ED capture). SRC_ADMS = '7' (ER source) retired by CMS in 2015, so TYPE_ADM is the post-2015 canonical field.</td>
+    </tr>
+    <tr>
+        <td>Inpatient Revenue (inp_revenuek_all)</td>
+        <td><span class="badge badge-inpatient">INPATIENT</span></td>
+        <td>DSYSRTKY, CLAIMNO, CLM_LN, THRU_DT, REV_CNTR, HCPCS_CD</td>
+        <td>Line-level revenue-center data for inpatient stays. Used to identify ICU/CCU care (REV_CNTR 0200–0209 = ICU, 0210–0219 = CCU). Joined to inp_claimsk_all via CLAIMNO to attach admission date for 30-day-before-death windowing.</td>
     </tr>
     <tr>
         <td>Hospice (hosp_claimsk_all)</td>
@@ -1097,7 +1103,8 @@ death_year = YEAR(death_dt)  -- 2017, 2018, 2019, 2020, 2021, 2022, 2023
 
 -- In regression models: death_year_c = death_year - 2017 (continuous, centered)
 -- In secular trend table: outcomes reported by year of death</code></pre>
-<p><strong>Secular trend outcomes by year of death:</strong> hospice enrollment rate, median hospice LOS, hospice LOS ≤7 days, ICI ≤14 days before death, ICI ≤30 days before death, in-hospital death rate.</p>
+<p><strong>Secular trend outcomes by year of death:</strong> hospice enrollment rate, median hospice LOS, hospice LOS ≤7 days, ICI ≤14 days before death, ICI ≤30 days before death, in-hospital death rate, any ED visit last 30d, ≥2 ED visits last 30d, ICU/CCU stay last 30d, any inpatient admission last 30d.</p>
+<p><strong>Formal trend test:</strong> For each outcome, logistic regression with <code>death_year_c = death_year − 2017</code> as continuous predictor. Reported as OR per year + Wald 95% CI + p-value, both unadjusted and adjusted for HNC subsite + ICI regimen. Output: <code>tables/trend_test.xlsx</code> (produced by <code>make_trend_test.py</code>). Format for manuscript footnote annotation: "No significant temporal trend in [outcome] across 2017–2023 (OR per year X.XX, 95% CI X–X; p=X.XX)."</p>
 
 
 <!-- ============================================ -->
@@ -1160,6 +1167,41 @@ in_hospital_death = EXISTS (
 
 <div class="note">
     <strong>Discharge status code 20</strong> = "Expired" in MedPAR. The ±1 day tolerance accounts for date recording differences.
+</div>
+
+<h3>Earle-Benchmark Aggressive Care Outcomes (30-day window before death)</h3>
+<p>Standard oncology quality-of-end-of-life-care indicators (Earle et al.), computed against a 30-day window ending on the date of death.</p>
+<table>
+    <tr><th>Outcome</th><th>Source</th><th>Definition</th></tr>
+    <tr>
+        <td><code>n_ed_last_30d</code></td>
+        <td>OP revenue + Inpatient</td>
+        <td>Count of distinct ED encounter dates in the 30d window before death. Unions (a) outpatient revenue lines where REV_CNTR ∈ 0450–0459 with REV_DT (or THRU_DT fallback) in window, and (b) inpatient stays with TYPE_ADM = '1' (Emergency) with ADMSN_DT in window. Deduped by patient-date so a same-day ED → admit counts once.</td>
+    </tr>
+    <tr>
+        <td><code>any_ed_last_30d</code></td>
+        <td>Derived</td>
+        <td>Binary: n_ed_last_30d ≥ 1</td>
+    </tr>
+    <tr>
+        <td><code>ge_2_ed_last_30d</code></td>
+        <td>Derived</td>
+        <td>Binary: n_ed_last_30d ≥ 2. Earle threshold; single ED visit near death is unremarkable, ≥2 signals escalating end-of-life instability.</td>
+    </tr>
+    <tr>
+        <td><code>icu_last_30d</code></td>
+        <td>Inpatient revenue</td>
+        <td>Binary: any inpatient revenue line with REV_CNTR ∈ 0200–0209 (ICU: general, surgical, medical, pediatric, psychiatric, post-ICU, burn, trauma) OR 0210–0219 (CCU: general, myocardial, other coronary), whose line THRU_DT falls in the 30d window before death. Source: io_inp_revenue (staged from inp_revenuek_all).</td>
+    </tr>
+    <tr>
+        <td><code>admission_last_30d</code></td>
+        <td>Inpatient</td>
+        <td>Binary: any inpatient stay with ADMSN_DT in the 30d window before death. Broadest admission indicator; no filter on admission reason.</td>
+    </tr>
+</table>
+
+<div class="note">
+    <strong>Interpretation caveat:</strong> Hospice enrollment and terminal-phase inpatient care are administratively near-mutually exclusive under the Medicare Hospice Benefit. Hospice-vs-non-hospice comparisons of these metrics are heavily influenced by that structure and by immortal-time bias (patients must survive long enough to elect hospice). Descriptive rates in the full cohort are the intended headline; the Fine-Gray subdistribution hazard analysis (see analysis plan) is the appropriate confirmatory approach for the hospice contrast.
 </div>
 
 
@@ -1371,6 +1413,10 @@ comorbidity_end   = DEATH_DT - INTERVAL '2 months'
     <tr><td><code>fig3_hospice_los.png</code></td><td>Figure 3: Hospice LOS distribution among enrolled patients</td><td>make_figures.py</td></tr>
     <tr><td><code>top10_admissions.xlsx</code></td><td>Sheet 1 (Table 4A): Top 10 ICD-10 3-character diagnosis categories for inpatient admissions within 30 days of death; Sheet 2 (Table 4B): Among hospice enrollees, % with inpatient admission in 7/14/30 days prior to hospice election + top 10 diagnosis categories in the 30-day pre-election window</td><td>make_top10_admissions.py</td></tr>
     <tr><td><code>sensitivity_analysis.xlsx</code></td><td>Two supplement sheets: Supplement 1 — regimen-adjusted timing (Table S1A: ICI timing+outcomes by regimen; Table S1B: reclassified patients); Supplement 2 — Broadened cohort (Table S2: primary cohort vs broadened cohort, characteristics + outcomes with SMDs)</td><td>make_sensitivity.py</td></tr>
+    <tr><td><code>earle_metrics.xlsx</code></td><td>Earle-benchmark aggressive care outcomes (30d before death): overall + hospice-stratified rates (any ED, ≥2 ED, ICU/CCU, any admission); Sheet 2 = hospice-vs-non-enrolled risk differences with Wald 95% CI. Footnote flags immortal-time-bias caveat.</td><td>make_earle_metrics.py</td></tr>
+    <tr><td><code>trend_test.xlsx</code></td><td>Formal secular-trend test for each binary outcome across 2017–2023: logistic regression with year-of-death as continuous predictor. OR per year + Wald 95% CI + p, both unadjusted and adjusted for subsite + regimen. Format ready for Figure 1 footnote annotation.</td><td>make_trend_test.py</td></tr>
+    <tr><td><code>supp_table_codes.xlsx</code></td><td>Supplementary Table 1: ICD-10 diagnosis codes used to identify eligible mucosal HNC (subsite-mapped, ranges, transparency block for excluded subsites)</td><td>make_supp_codes.py</td></tr>
+    <tr><td><code>chemo_def_expansion.xlsx</code></td><td>Ad hoc supplement to PI: impact of expanding chemo-ICI definition beyond platinum (adds taxanes, cetuximab, 5-FU as sensitivity scan)</td><td>make_chemo_def_table.py</td></tr>
 </table>
 
 <h3>Table 1: Patient Characteristics</h3>

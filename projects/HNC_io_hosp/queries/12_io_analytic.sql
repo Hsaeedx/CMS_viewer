@@ -51,6 +51,60 @@ chemo_io_flag AS (
         WHERE r.HCPCS_CD IN ('J9060','J9045')
     ) chemo ON io.DSYSRTKY = chemo.DSYSRTKY
     WHERE ABS(datediff('day', chemo.chemo_date, io.io_date)) <= 21
+),
+
+-- ── Earle-benchmark end-of-life care flags (30-day window before death) ───────
+ed_outpatient_dates AS (
+    -- Distinct outpatient ED visit dates (rev codes 0450-0459)
+    SELECT DISTINCT
+        r.DSYSRTKY,
+        TRY_STRPTIME(COALESCE(NULLIF(r.REV_DT,''), r.THRU_DT), '%Y%m%d') AS ed_dt
+    FROM io_out_revenue r
+    JOIN io_cohort c ON r.DSYSRTKY = c.DSYSRTKY
+    WHERE r.REV_CNTR BETWEEN '0450' AND '0459'
+      AND TRY_STRPTIME(COALESCE(NULLIF(r.REV_DT,''), r.THRU_DT), '%Y%m%d')
+            BETWEEN (c.death_dt - INTERVAL 30 DAY) AND c.death_dt
+),
+ed_admitted_dates AS (
+    -- Inpatient stays admitted via ED (TYPE_ADM = '1' = Emergency)
+    -- SRC_ADMS = '7' retired by CMS in 2015; TYPE_ADM = '1' is the correct post-2015 signal
+    SELECT DISTINCT
+        i.DSYSRTKY,
+        TRY_STRPTIME(i.ADMSN_DT, '%Y%m%d') AS ed_dt
+    FROM io_inp_claims i
+    JOIN io_cohort c ON i.DSYSRTKY = c.DSYSRTKY
+    WHERE i.TYPE_ADM = '1'
+      AND TRY_STRPTIME(i.ADMSN_DT, '%Y%m%d')
+            BETWEEN (c.death_dt - INTERVAL 30 DAY) AND c.death_dt
+),
+ed_all_dates AS (
+    SELECT DSYSRTKY, ed_dt FROM ed_outpatient_dates
+    UNION                                  -- UNION (not UNION ALL) dedupes same-day ED->admit
+    SELECT DSYSRTKY, ed_dt FROM ed_admitted_dates
+),
+ed_counts AS (
+    SELECT DSYSRTKY, COUNT(DISTINCT ed_dt) AS n_ed_last_30d
+    FROM ed_all_dates
+    GROUP BY 1
+),
+icu_last_30d_cte AS (
+    -- Any inpatient revenue line with ICU (020x) or CCU (021x) rev code whose
+    -- line THRU_DT falls in the last 30d of life
+    SELECT DISTINCT r.DSYSRTKY
+    FROM io_inp_revenue r
+    JOIN io_cohort c ON r.DSYSRTKY = c.DSYSRTKY
+    WHERE (r.REV_CNTR BETWEEN '0200' AND '0209'
+        OR r.REV_CNTR BETWEEN '0210' AND '0219')
+      AND TRY_STRPTIME(r.THRU_DT, '%Y%m%d')
+            BETWEEN (c.death_dt - INTERVAL 30 DAY) AND c.death_dt
+),
+adm_last_30d_cte AS (
+    -- Any inpatient admission with ADMSN_DT in the last 30d
+    SELECT DISTINCT i.DSYSRTKY
+    FROM io_inp_claims i
+    JOIN io_cohort c ON i.DSYSRTKY = c.DSYSRTKY
+    WHERE TRY_STRPTIME(i.ADMSN_DT, '%Y%m%d')
+            BETWEEN (c.death_dt - INTERVAL 30 DAY) AND c.death_dt
 )
 
 SELECT
@@ -205,6 +259,13 @@ SELECT
     (datediff('day', c.last_io_date, c.death_dt) <= 14)::INT AS io_within_14d_of_death,
     (datediff('day', c.last_io_date, c.death_dt) <= 30)::INT AS io_within_30d_of_death,
 
+    -- Earle-benchmark aggressive care flags (30-day window before death)
+    COALESCE(ec.n_ed_last_30d, 0)                         AS n_ed_last_30d,
+    (COALESCE(ec.n_ed_last_30d, 0) >= 1)::INT             AS any_ed_last_30d,
+    (COALESCE(ec.n_ed_last_30d, 0) >= 2)::INT             AS ge_2_ed_last_30d,
+    (icu.DSYSRTKY IS NOT NULL)::INT                       AS icu_last_30d,
+    (adm.DSYSRTKY IS NOT NULL)::INT                       AS admission_last_30d,
+
     -- Sensitivity analysis: regimen-adjusted timing
     sv.median_interdose_days,
     sv.estimated_regimen,
@@ -243,4 +304,7 @@ JOIN io_comorbidity cm ON c.DSYSRTKY = cm.DSYSRTKY
 LEFT JOIN chemo_io_flag cf ON c.DSYSRTKY = cf.DSYSRTKY
 LEFT JOIN fips_cte f ON c.DSYSRTKY = f.DSYSRTKY
 LEFT JOIN rucc_lookup r ON f.fips_cd = r.FIPS
-LEFT JOIN io_sensitivity_vars sv ON c.DSYSRTKY = sv.DSYSRTKY;
+LEFT JOIN io_sensitivity_vars sv ON c.DSYSRTKY = sv.DSYSRTKY
+LEFT JOIN ed_counts ec       ON c.DSYSRTKY = ec.DSYSRTKY
+LEFT JOIN icu_last_30d_cte icu ON c.DSYSRTKY = icu.DSYSRTKY
+LEFT JOIN adm_last_30d_cte adm ON c.DSYSRTKY = adm.DSYSRTKY;

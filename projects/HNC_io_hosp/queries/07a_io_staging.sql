@@ -2,7 +2,7 @@
 -- Scans each large claim table ONCE; downstream steps (07, 10, 11, 12) use these instead
 -- Join target: io_episodes INTERSECT io_subsite (~7K patients)
 -- NO date filtering here — each downstream step applies its own date window
--- Output tables: io_car_lines, io_out_revenue, io_inp_claims, io_out_claims, io_hosp_claims
+-- Output tables: io_car_lines, io_out_revenue, io_inp_claims, io_inp_revenue, io_out_claims, io_hosp_claims
 
 SET memory_limit='24GB';
 SET threads=12;
@@ -30,7 +30,9 @@ DROP TABLE IF EXISTS io_out_revenue;
 CREATE TABLE io_out_revenue AS
 SELECT
     r.DSYSRTKY,
+    r.CLAIMNO,
     r.HCPCS_CD,
+    r.REV_CNTR,
     r.REV_DT,
     r.THRU_DT
 FROM out_revenuek_all r
@@ -46,8 +48,11 @@ DROP TABLE IF EXISTS io_inp_claims;
 CREATE TABLE io_inp_claims AS
 SELECT
     i.DSYSRTKY,
+    i.CLAIMNO,
     i.ADMSN_DT,
     i.THRU_DT,
+    i.TYPE_ADM,
+    i.SRC_ADMS,
     i.STUS_CD,
     i.DSCHRGDT,
     i.PRNCPAL_DGNS_CD,
@@ -73,6 +78,25 @@ JOIN (
     FROM io_episodes e
     JOIN io_subsite s ON e.DSYSRTKY = s.DSYSRTKY
 ) h ON i.DSYSRTKY = h.DSYSRTKY;
+
+-- ── 3b. Inpatient revenue line claims (rev codes for ICU/CCU detection) ───────
+-- Joins to io_inp_claims via CLAIMNO to attach admission dates for date-window filtering.
+DROP TABLE IF EXISTS io_inp_revenue;
+
+CREATE TABLE io_inp_revenue AS
+SELECT
+    r.DSYSRTKY,
+    r.CLAIMNO,
+    r.CLM_LN,
+    r.THRU_DT,
+    r.REV_CNTR,
+    r.HCPCS_CD
+FROM inp_revenuek_all r
+JOIN (
+    SELECT e.DSYSRTKY
+    FROM io_episodes e
+    JOIN io_subsite s ON e.DSYSRTKY = s.DSYSRTKY
+) h ON r.DSYSRTKY = h.DSYSRTKY;
 
 -- ── 4. Outpatient claims (diagnoses for Elixhauser step 10) ───────────────────
 DROP TABLE IF EXISTS io_out_claims;
