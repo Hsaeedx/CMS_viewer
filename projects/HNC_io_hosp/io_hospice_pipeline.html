@@ -309,7 +309,7 @@
 <div class="header-block">
     <h1>ICI Hospice Study: Cohort Assembly Pipeline</h1>
     <p>Aggressiveness of End-of-Life Care Among Medicare Beneficiaries with Head and Neck Cancer Who Received Immune Checkpoint Inhibitors</p>
-    <p><strong>Study Period:</strong> January 1, 2017 – June 30, 2023 | <strong>Version:</strong> 1.7 | <strong>Last Updated:</strong> July 2026 | <strong>Final N:</strong> 2,527 (primary) · 5,302 (expanded ITT)</p>
+    <p><strong>Study Period:</strong> January 1, 2017 – June 30, 2023 | <strong>Version:</strong> 1.8 | <strong>Last Updated:</strong> July 2026 | <strong>Final N:</strong> 2,527 (primary) · 5,302 (expanded ITT)</p>
 </div>
 
 <div class="toc">
@@ -1111,15 +1111,44 @@ death_year = YEAR(death_dt)  -- 2017, 2018, 2019, 2020, 2021, 2022, 2023
 <h1 id="outcomes">8. Outcome Definitions</h1>
 <!-- ============================================ -->
 
-<h3>Primary Outcome</h3>
+<h3>Primary Outcome (PI-preferred, per revision)</h3>
 <table>
     <tr><th>Outcome</th><th>Source</th><th>Definition</th></tr>
     <tr>
-        <td><strong>hospice_enrolled</strong></td>
+        <td><strong>timely_enrollment</strong></td>
+        <td>Derived</td>
+        <td>Binary (0/1): hospice_enrolled = 1 AND hospice_los_days &gt; 3 (i.e., enrolled more than 3 days before death). Primary outcome for the multivariable regression per PI revision — addresses the concern that "any enrollment" fails to capture whether enrollment happened in time to matter clinically.</td>
+    </tr>
+    <tr>
+        <td><em>hospice_enrolled (sensitivity)</em></td>
         <td><span class="badge badge-hospice">HOSPICE</span></td>
-        <td>Binary (0/1): ≥1 claim in Hospice file with HSPCSTRT &lt; DEATH_DT (LDS hospice start date column = HSPCSTRT)</td>
+        <td>Binary (0/1): ≥1 claim in Hospice file with HSPCSTRT &lt; DEATH_DT. Retained as descriptive headline (66.1%) and as a sensitivity regression alongside the primary timely-enrollment model.</td>
     </tr>
 </table>
+
+<h3>Competing-Risks Structure</h3>
+<p>Per PI revision, hospice enrollment is analyzed under a competing-risks framework to mitigate immortal-time bias. Death without hospice enrollment is the competing event: patients who die rapidly cannot enroll, so a simple binary "ever enrolled" analysis overstates the causal contrast between hospice and non-hospice care.</p>
+<table>
+    <tr><th>Variable</th><th>Source</th><th>Definition</th></tr>
+    <tr>
+        <td><code>time_to_event</code></td>
+        <td>Derived</td>
+        <td>Days from <code>last_io_date</code> (time zero) to whichever event occurred first: hospice election OR death.</td>
+    </tr>
+    <tr>
+        <td><code>event_type</code></td>
+        <td>Derived</td>
+        <td>1 = hospice election (prior to death); 2 = death without hospice election (competing event). 0 = censored (not applicable — every cohort member is a decedent).</td>
+    </tr>
+</table>
+
+<div class="note">
+    <strong>Analysis stack:</strong>
+    <ul>
+        <li><strong>Aalen-Johansen CIF</strong> (<code>lifelines.AalenJohansenFitter</code>): non-parametric cumulative incidence of hospice enrollment, stratified by dual-eligible status. Produces <code>fig_cif_hospice_by_dual.png</code> + <code>cif_hospice_by_dual.xlsx</code>.</li>
+        <li><strong>Fine-Gray subdistribution hazard model</strong> (<code>cmprsk::crr</code> in R 4.6.1, invoked via Rscript subprocess): confirmatory covariate-adjusted analysis. Reports subdistribution hazard ratios (sHR) with 95% CI on the cumulative-incidence scale.</li>
+    </ul>
+</div>
 
 <pre><code>hospice_enrolled = EXISTS (
     SELECT 1 FROM hosp_claimsk_all h
@@ -1415,6 +1444,8 @@ comorbidity_end   = DEATH_DT - INTERVAL '2 months'
     <tr><td><code>sensitivity_analysis.xlsx</code></td><td>Two supplement sheets: Supplement 1 — regimen-adjusted timing (Table S1A: ICI timing+outcomes by regimen; Table S1B: reclassified patients); Supplement 2 — Broadened cohort (Table S2: primary cohort vs broadened cohort, characteristics + outcomes with SMDs)</td><td>make_sensitivity.py</td></tr>
     <tr><td><code>earle_metrics.xlsx</code></td><td>Earle-benchmark aggressive care outcomes (30d before death): overall + hospice-stratified rates (any ED, ≥2 ED, ICU/CCU, any admission); Sheet 2 = hospice-vs-non-enrolled risk differences with Wald 95% CI. Footnote flags immortal-time-bias caveat.</td><td>make_earle_metrics.py</td></tr>
     <tr><td><code>trend_test.xlsx</code></td><td>Formal secular-trend test for each binary outcome across 2017–2023: logistic regression with year-of-death as continuous predictor. OR per year + Wald 95% CI + p, both unadjusted and adjusted for subsite + regimen. Format ready for Figure 1 footnote annotation.</td><td>make_trend_test.py</td></tr>
+    <tr><td><code>cif_hospice_by_dual.xlsx</code> + <code>fig_cif_hospice_by_dual.png</code></td><td>Aalen-Johansen cumulative incidence function for hospice enrollment (competing event: death without hospice), stratified by dual-eligible status. Time zero = last ICI administration. Point-estimate table gives CIF (%) with 95% CI at 30/60/90/120/180/270/365 days. Figure shows the CIF plateau below 100% by design — makes the immortal-time-bias point visually.</td><td>make_cif_figure.py</td></tr>
+    <tr><td><code>table3_fine_gray.xlsx</code></td><td>Fine-Gray subdistribution hazard model as sensitivity to the primary Table 3 (timely hospice enrollment logit). sHR + 95% CI + p for each covariate on the cumulative-incidence scale, accounting for the competing risk of death without hospice. Implemented via Rscript subprocess to <code>cmprsk::crr</code>.</td><td>make_fine_gray.py + r_scripts/fine_gray.R</td></tr>
     <tr><td><code>supp_table_codes.xlsx</code></td><td>Supplementary Table 1: ICD-10 diagnosis codes used to identify eligible mucosal HNC (subsite-mapped, ranges, transparency block for excluded subsites)</td><td>make_supp_codes.py</td></tr>
     <tr><td><code>chemo_def_expansion.xlsx</code></td><td>Ad hoc supplement to PI: impact of expanding chemo-ICI definition beyond platinum (adds taxanes, cetuximab, 5-FU as sensitivity scan)</td><td>make_chemo_def_table.py</td></tr>
 </table>

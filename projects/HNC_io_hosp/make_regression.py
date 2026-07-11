@@ -23,7 +23,7 @@ con = duckdb.connect(DB_PATH, read_only=True)
 con.execute("SET memory_limit='24GB'; SET threads=12;")
 df = con.execute("""
     SELECT
-        hospice_enrolled, in_hospital_death,
+        hospice_enrolled, timely_enrollment, in_hospital_death,
         age_at_death, sex, race,
         dual_eligible, urban_rural, census_region,
         subsite_category, io_agent, io_regimen,
@@ -37,6 +37,7 @@ con.close()
 
 # ── Data prep ──────────────────────────────────────────────────────────────────
 df['hospice_enrolled']  = df['hospice_enrolled'].fillna(0).astype(int)
+df['timely_enrollment'] = df['timely_enrollment'].fillna(0).astype(int)
 df['in_hospital_death'] = df['in_hospital_death'].fillna(0).astype(int)
 df['dual_eligible']     = df['dual_eligible'].fillna(0).astype(int)
 df['van_walraven_score'] = pd.to_numeric(df['van_walraven_score'], errors='coerce').fillna(0)
@@ -93,24 +94,32 @@ predictors = ['age_at_death', 'sex', 'race_collapsed', 'dual_eligible', 'urban_r
               'last_episode_doses', 'van_walraven_score',
               'primary_curative_type', 'death_year_c']
 
-df_model = df[predictors + ['hospice_enrolled', 'in_hospital_death']].dropna()
+df_model = df[predictors + ['hospice_enrolled', 'timely_enrollment', 'in_hospital_death']].dropna()
 print(f"  Model dataset: {len(df_model):,} rows (dropped {len(df)-len(df_model):,} with missing predictors)")
 
 # ── Fit models ────────────────────────────────────────────────────────────────
+# Primary outcome per PI: TIMELY enrollment (>3d before death), addresses "any
+# enrollment" not capturing timing.
+# Sensitivity: any hospice enrollment (original outcome).
+# Also: in-hospital death.
 formula = (
-    'hospice_enrolled ~ age_at_death + C(sex) + C(race_collapsed) + dual_eligible '
+    'OUTCOME ~ age_at_death + C(sex) + C(race_collapsed) + dual_eligible '
     '+ C(urban_rural) + C(census_region) + C(subsite_category) '
     '+ C(io_agent) + C(io_regimen) '
     '+ last_episode_doses + van_walraven_score + C(primary_curative_type) '
     '+ death_year_c'
 )
 
-print("Fitting Table 3 (hospice enrollment)...")
-model3 = smf.logit(formula.replace('hospice_enrolled', 'hospice_enrolled'), data=df_model).fit(
+print("Fitting Table 3 (PRIMARY: timely hospice enrollment >3d before death)...")
+model3 = smf.logit(formula.replace('OUTCOME', 'timely_enrollment'), data=df_model).fit(
+    method='newton', maxiter=500, disp=False)
+
+print("Fitting Table 3-sens (any hospice enrollment)...")
+model3_sens = smf.logit(formula.replace('OUTCOME', 'hospice_enrolled'), data=df_model).fit(
     method='newton', maxiter=500, disp=False)
 
 print("Fitting Table 4 (in-hospital death)...")
-model4 = smf.logit(formula.replace('hospice_enrolled', 'in_hospital_death'), data=df_model).fit(
+model4 = smf.logit(formula.replace('OUTCOME', 'in_hospital_death'), data=df_model).fit(
     method='newton', maxiter=500, disp=False)
 
 # ── Extract results ────────────────────────────────────────────────────────────
@@ -132,8 +141,9 @@ def extract_results(model):
     results = results[results['term'] != 'Intercept'].copy()
     return results
 
-res3 = extract_results(model3)
-res4 = extract_results(model4)
+res3      = extract_results(model3)
+res3_sens = extract_results(model3_sens)
+res4      = extract_results(model4)
 
 # ── Variable group ordering with reference categories ────────────────────────
 # Each entry: (display_label, raw_prefix, reference_label)
@@ -225,13 +235,14 @@ def build_display_rows(res):
         df[col] = df[col].fillna(False).astype(bool)
     return df
 
-for res in [res3, res4]:
+for res in [res3, res3_sens, res4]:
     res['label'] = res['term'].apply(clean_term)
     res['or_ci'] = res.apply(fmt_or, axis=1)
     res['p_fmt'] = res['pval'].apply(fmt_p)
 
-df_display3 = build_display_rows(res3)
-df_display4 = build_display_rows(res4)
+df_display3      = build_display_rows(res3)
+df_display3_sens = build_display_rows(res3_sens)
+df_display4      = build_display_rows(res4)
 
 # ── Write Excel ────────────────────────────────────────────────────────────────
 print(f"Writing {OUT_PATH} ...")
@@ -250,8 +261,9 @@ REF_FONT     = Font(name='Times New Roman', italic=True, size=11, color='888888'
 wb = openpyxl.Workbook()
 
 for sheet_name, table_num, df_disp, outcome_label, n_outcome in [
-    ('Table 3 - Hospice',       'Table 3', df_display3, 'Hospice Enrollment',  df_model['hospice_enrolled'].sum()),
-    ('Table 4 - In-Hosp Death', 'Table 4', df_display4, 'In-Hospital Death',   df_model['in_hospital_death'].sum()),
+    ('Table 3 - Timely Hospice',  'Table 3',      df_display3,      'Timely Hospice Enrollment (>3d before death)', df_model['timely_enrollment'].sum()),
+    ('Table 3 sens - Any Hospice','Table 3 sens', df_display3_sens, 'Any Hospice Enrollment (sensitivity)',          df_model['hospice_enrolled'].sum()),
+    ('Table 4 - In-Hosp Death',   'Table 4',      df_display4,      'In-Hospital Death',                             df_model['in_hospital_death'].sum()),
 ]:
     ws = wb.create_sheet(title=sheet_name)
 
@@ -308,8 +320,9 @@ if 'Sheet' in wb.sheetnames:
 
 wb.save(OUT_PATH)
 print(f"Saved: {OUT_PATH}")
-print(f"\nModel 3 (hospice): pseudo-R² = {model3.prsquared:.3f}, AIC = {model3.aic:.1f}")
-print(f"Model 4 (in-hosp): pseudo-R² = {model4.prsquared:.3f}, AIC = {model4.aic:.1f}")
+print(f"\nModel 3 (timely, PRIMARY):  pseudo-R2 = {model3.prsquared:.3f}, AIC = {model3.aic:.1f}")
+print(f"Model 3 (any hospice, sens): pseudo-R2 = {model3_sens.prsquared:.3f}, AIC = {model3_sens.aic:.1f}")
+print(f"Model 4 (in-hospital death): pseudo-R2 = {model4.prsquared:.3f}, AIC = {model4.aic:.1f}")
 
 from utils import export_xlsx_to_png
 FIGURES_DIR = r"C:\Users\hsaee\Desktop\CMS_viewer\projects\HNC_io_hosp\figures"

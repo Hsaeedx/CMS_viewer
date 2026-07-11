@@ -282,6 +282,33 @@ SELECT
     o.days_last_io_to_hospice,
     o.in_hospital_death,
 
+    -- Timely hospice enrollment (>3 days before death) - PI-preferred primary outcome
+    -- for the multivariable model (mitigates "any enrollment" not capturing lateness)
+    (COALESCE(o.hospice_los_days, 0) > 3)::INT AS timely_enrollment,
+
+    -- Time-to-event structure (t0 = last ICI administration; competing risks)
+    --   event_type = 1 : hospice election came first (before death)
+    --   event_type = 2 : died without hospice election (competing event)
+    --   event_type = 0 : censored (shouldn't occur - everyone in cohort died)
+    -- time_to_event: days from last ICI date to whichever event occurred first
+    CASE
+        WHEN o.hospice_enrolled = 1
+             AND o.days_last_io_to_hospice IS NOT NULL
+             AND o.days_last_io_to_hospice > 0
+             AND o.days_last_io_to_hospice <= datediff('day', c.last_io_date, c.death_dt)
+            THEN 1
+        ELSE 2
+    END AS event_type,
+    CASE
+        WHEN o.hospice_enrolled = 1
+             AND o.days_last_io_to_hospice IS NOT NULL
+             AND o.days_last_io_to_hospice > 0
+             AND o.days_last_io_to_hospice <= datediff('day', c.last_io_date, c.death_dt)
+            THEN o.days_last_io_to_hospice
+        ELSE datediff('day', c.last_io_date, c.death_dt)
+    END AS time_to_event,
+
+
     -- Comorbidity
     cm.van_walraven_score,
     CASE
