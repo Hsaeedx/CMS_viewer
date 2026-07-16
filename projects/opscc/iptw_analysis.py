@@ -1,7 +1,8 @@
 """
-Propensity Score Matching — two independent comparisons for OPSCC:
+Propensity Score Matching — three independent comparisons for OPSCC:
   Comparison A: TORS alone vs RT alone
-  Comparison B: TORS + RT  vs CT/CRT
+  Comparison B: TORS + RT  vs CRT
+  Comparison C: TORS + CRT vs CRT
 
 Each comparison uses 1:1 nearest-neighbor matching on logit(PS),
 caliper = 0.2 × SD(logit PS).
@@ -9,9 +10,9 @@ caliper = 0.2 × SD(logit PS).
 Outputs:
   opscc_psm_A.parquet   — matched pairs for Comparison A
   opscc_psm_B.parquet   — matched pairs for Comparison B
+  opscc_psm_C.parquet   — matched pairs for Comparison C
   opscc_propensity columns added/updated:
-    psm_matched_A BOOLEAN, psm_match_id_A INTEGER
-    psm_matched_B BOOLEAN, psm_match_id_B INTEGER
+    psm_matched_{A,B,C} BOOLEAN, psm_match_id_{A,B,C} INTEGER
 """
 
 import sys
@@ -67,7 +68,7 @@ def run_psm(df_raw, label, tors_label, ctrl_label, out_parquet, col_suffix):
     tors_label  : tx_group value for the TORS/surgical arm (treatment = 1)
     ctrl_label  : tx_group value for the control arm       (treatment = 0)
     out_parquet : output file path for the matched dataset
-    col_suffix  : 'A' or 'B' — suffix for psm_matched_X / psm_match_id_X columns
+    col_suffix  : 'A', 'B', or 'C' — suffix for psm_matched_X / psm_match_id_X columns
     """
     df = df_raw[df_raw['tx_group'].isin([tors_label, ctrl_label])].copy()
     df['treatment'] = (df['tx_group'] == tors_label).astype(int)
@@ -197,8 +198,16 @@ for grp, n in df_all.groupby('tx_group').size().items():
     print(f"    {grp}: {n:,}")
 
 # ── 2. Run both PSM comparisons ───────────────────────────────────────────────
+# Comp A (monotherapy): exclude nodal-involvement patients (N+ disease is incompatible
+# with single-modality treatment intent)
+df_comp_a = df_all[df_all['has_nodal_dx'] == False].copy()
+
+# Comp B (multimodal): retain nodal-involvement patients — N+ disease is expected
+# in this population and these patients are the target of multimodal therapy
+df_comp_b = df_all.copy()
+
 ids_A = run_psm(
-    df_all,
+    df_comp_a,
     label       = 'Comparison A',
     tors_label  = 'TORS alone',
     ctrl_label  = 'RT alone',
@@ -207,12 +216,26 @@ ids_A = run_psm(
 )
 
 ids_B = run_psm(
-    df_all,
+    df_comp_b,
     label       = 'Comparison B',
     tors_label  = 'TORS + RT',
-    ctrl_label  = 'CT/CRT',
+    ctrl_label  = 'CRT',
     out_parquet = r"F:\CMS\projects\opscc\opscc_psm_B.parquet",
     col_suffix  = 'B',
+)
+
+# Comp C (surgical contribution in CRT-class patients):
+# TORS + CRT vs CRT — both arms receive chemoradiation; comparison isolates
+# whether adding TORS to a CRT course adds functional burden
+df_comp_c = df_all.copy()
+
+ids_C = run_psm(
+    df_comp_c,
+    label       = 'Comparison C',
+    tors_label  = 'TORS + CRT',
+    ctrl_label  = 'CRT',
+    out_parquet = r"F:\CMS\projects\opscc\opscc_psm_C.parquet",
+    col_suffix  = 'C',
 )
 
 # ── 3. Write PSM flags back to opscc_propensity ───────────────────────────────
@@ -220,12 +243,12 @@ print("\nWriting PSM flags to opscc_propensity...")
 con_rw = duckdb.connect(DB_PATH)
 con_rw.execute("SET memory_limit='24GB'; SET threads=12;")
 
-for suffix in ('A', 'B'):
+for suffix in ('A', 'B', 'C'):
     con_rw.execute(f"ALTER TABLE opscc_propensity ADD COLUMN IF NOT EXISTS psm_matched_{suffix}  BOOLEAN DEFAULT FALSE;")
     con_rw.execute(f"ALTER TABLE opscc_propensity ADD COLUMN IF NOT EXISTS psm_match_id_{suffix} INTEGER;")
     con_rw.execute(f"UPDATE opscc_propensity SET psm_matched_{suffix} = FALSE, psm_match_id_{suffix} = NULL;")
 
-for ids_df, suffix in [(ids_A, 'A'), (ids_B, 'B')]:
+for ids_df, suffix in [(ids_A, 'A'), (ids_B, 'B'), (ids_C, 'C')]:
     con_rw.register(f'match_ids_{suffix}', ids_df)
     con_rw.execute(f"""
         UPDATE opscc_propensity

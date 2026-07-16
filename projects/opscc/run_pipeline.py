@@ -1,36 +1,42 @@
 """
 run_pipeline.py
-Runs the OPSCC two-comparison pipeline in order.
+Runs the OPSCC three-comparison pipeline in order.
 
 Study design:
   Comparison A — TORS alone  vs  RT alone   (surgery vs radiation monotherapy)
-  Comparison B — TORS + RT   vs  CT/CRT     (adjuvant-RT surgery vs chemoradiation)
+  Comparison B — TORS + RT   vs  CRT        (adjuvant-RT surgery vs chemoradiation)
+  Comparison C — TORS + CRT  vs  TORS + RT  (triple modality vs surgery+RT)
 
   SQL steps (run via DuckDB connection):
     1. hnc_dx_raw.sql        — Raw HNC diagnosis claims across all sources
-    2. hnc_confirmed.sql     — HNC confirmation (≥1 inpatient OR ≥2 outpatient ≥30d apart)
+    2. hnc_confirmed.sql     — HNC confirmation (>=1 inpatient OR >=2 outpatient >=30d apart)
     3. hnc_universe.sql      — Universe of confirmed HNC patients
     4. opscc_universe.sql    — Filter to OPSCC primaries (C01, C09, C10, C14)
-    5. opscc_cohort.sql      — Apply FFS enrollment criterion (6 continuous FFS months)
+    5. opscc_cohort.sql      — Apply FFS enrollment (at dx month) + prior cancer exclusion (12-month lookback)
     6. opscc_ctcrt.sql       — Annotate cohort: TORS date, chemo date, RT date, metastatic flag
     7. opscc_elixhauser.sql  — Elixhauser comorbidity flags + van Walraven score
-    8. opscc_propensity.sql  — Analytic dataset with 4 tx_groups, demographics, comorbidities
-    9. opscc_outcomes.sql    — Dysphagia / G-tube / tracheostomy outcomes
+    8. opscc_propensity.sql  — Analytic dataset with 5 tx_groups, demographics, comorbidities
+    9. opscc_outcomes.sql    — Dysphagia outcomes
    10. opscc_survival.sql    — Survival table: death date + Dec-31 censor per patient
    11. opscc_ffs_dates.sql   — FFS dropout date: last continuous Part A+B non-HMO month
 
-  Python steps (run as subprocesses):
-   12. iptw_analysis.py      — Two independent 1:1 PSMs; writes psm_matched_A/B to opscc_propensity
-   13. survival_analysis.py  — Overall KM + Cox PH (both comparisons)
-   14. subgroup_analysis.py  — Subgroup KM + Cox (age <75 / ≥75, Elixhauser tertile)
-   15. outcomes_analysis.py  — Odds ratios: dysphagia, G-tube, trach (6mo/1yr/3yr/5yr/any)
-   16. make_table1.py        — Table 1 demographics → table1_psm.xlsx
-   17. make_outcomes_table.py — OR table export → outcomes_tables.xlsx
-   18. make_figures.py       — KM + forest plots for both comparisons → PNG files
-   19. make_flowchart.py     — Cohort flowchart → cohort_flowchart.png
+  Python + post-PSM SQL steps:
+   12. iptw_analysis.py             — Three 1:1 PSMs; writes psm_matched_{A,B,C} to opscc_propensity
+   13. opscc_slp.sql                — Multi-interval SLP utilization for matched patients
+   13a. opscc_gtube_dependence.sql  — Multi-interval G-tube utilization for matched patients
+   14. survival_analysis.py         — Overall KM + Cox PH (all comparisons)
+   15. subgroup_analysis.py         — Subgroup KM + Cox
+   16. outcomes_analysis.py         — Cumulative-incidence rates: G-tube, SLP, dysphagia
+   17. make_table1.py               — Table 1 demographics
+   18. make_outcomes_table.py       — Outcomes tables export
+   19. make_figures.py              — KM + forest + cumulative-incidence plots
+   20. make_flowchart.py            — Cohort flowchart
 
 Pass a start step number to resume from a specific step, e.g.:
     python run_pipeline.py 10
+
+Output artifacts (Excel tables, PNG figures) for all steps >= start_step are
+deleted before those steps run, so no stale files can ever persist.
 """
 
 import os
@@ -66,14 +72,44 @@ STEPS_SQL = {
 
 STEPS_PY = {
     12: ("12 - PSM Matching",       PROJECT_DIR / "iptw_analysis.py"),
-    13: ("13 - Survival Analysis",  PROJECT_DIR / "survival_analysis.py"),
-    14: ("14 - Subgroup Survival",  PROJECT_DIR / "subgroup_analysis.py"),
-    15: ("15 - Outcomes Analysis",  PROJECT_DIR / "outcomes_analysis.py"),
-    16: ("16 - Table 1",            PROJECT_DIR / "make_table1.py"),
-    17: ("17 - Outcomes Table",     PROJECT_DIR / "make_outcomes_table.py"),
-    18: ("18 - Figures",            PROJECT_DIR / "make_figures.py"),
-    19: ("19 - Flowchart",          PROJECT_DIR / "make_flowchart.py"),
+    15: ("15 - Survival Analysis",  PROJECT_DIR / "survival_analysis.py"),
+    16: ("16 - Subgroup Survival",  PROJECT_DIR / "subgroup_analysis.py"),
+    17: ("17 - Outcomes Analysis",  PROJECT_DIR / "outcomes_analysis.py"),
+    18: ("18 - Table 1",            PROJECT_DIR / "make_table1.py"),
+    19: ("19 - Outcomes Table",     PROJECT_DIR / "make_outcomes_table.py"),
+    20: ("20 - Figures",            PROJECT_DIR / "make_figures.py"),
+    21: ("21 - Flowchart",          PROJECT_DIR / "make_flowchart.py"),
 }
+
+# SQL steps that run after PSM matching (depend on psm_matched_A/B/C flags)
+STEPS_SQL_POST = {
+    13: ("13 - SLP Utilization",       QUERIES_DIR / "opscc_slp.sql"),
+    14: ("14 - G-tube Dependence",     QUERIES_DIR / "opscc_gtube_dependence.sql"),
+}
+
+
+# Output artifacts produced by steps 18-21; keyed by the first step that creates them
+OUTPUT_FILES = {
+    18: [PROJECT_DIR / "figures" / "table1_psm.xlsx"],
+    19: [PROJECT_DIR / "figures" / "outcomes_tables.xlsx"],
+    20: sorted((PROJECT_DIR / "figures").glob("fig_*.png")) if (PROJECT_DIR / "figures").exists() else [],
+    21: [PROJECT_DIR / "figures" / "cohort_flowchart.png"],
+}
+
+
+def clean_outputs(start_step):
+    """Delete all output files for steps >= start_step so nothing stale remains."""
+    for step, files in OUTPUT_FILES.items():
+        if step < start_step:
+            continue
+        # Re-evaluate glob at runtime so we catch any files present now
+        if step == 20:
+            files = list((PROJECT_DIR / "figures").glob("fig_*.png")) if (PROJECT_DIR / "figures").exists() else []
+        for f in files:
+            f = Path(f)
+            if f.exists():
+                f.unlink()
+                print(f"  Deleted stale output: {f.name}")
 
 
 def split_sql(text):
@@ -135,9 +171,13 @@ def main():
     print(f"  DB:      {DB_PATH}")
     print(f"  Scripts: {PROJECT_DIR}")
 
+    # Remove stale output artifacts before regenerating them
+    clean_outputs(start_step)
+
     # SQL steps 1-11 run inside a single DuckDB connection
-    sql_steps = [s for s in range(1, 12) if s >= start_step]
-    py_steps  = [s for s in range(12, 20) if s >= start_step]
+    sql_steps      = [s for s in range(1, 12) if s >= start_step]
+    sql_post_steps = [s for s in sorted(STEPS_SQL_POST) if s >= start_step]
+    py_steps       = [s for s in sorted(STEPS_PY) if s >= start_step]
 
     if sql_steps:
         con = connect()
@@ -146,8 +186,15 @@ def main():
             run_step(con, *STEPS_SQL[step])
         con.close()
 
-    for step in py_steps:
-        run_subprocess(*STEPS_PY[step])
+    # Interleave post-PSM SQL steps and Python steps in order
+    all_remaining = sorted(set(sql_post_steps + py_steps))
+    for step in all_remaining:
+        if step in STEPS_SQL_POST:
+            con = connect()
+            run_step(con, *STEPS_SQL_POST[step])
+            con.close()
+        elif step in STEPS_PY:
+            run_subprocess(*STEPS_PY[step])
 
     # Final summary
     con = connect()
@@ -164,6 +211,8 @@ def main():
         "opscc_comorbidity",
         "opscc_propensity",
         "opscc_outcomes",
+        "opscc_slp",
+        "opscc_gtube_dependence",
         "opscc_survival",
         "opscc_ffs_dates",
     ]

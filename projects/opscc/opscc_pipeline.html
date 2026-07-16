@@ -163,7 +163,7 @@
 <div class="header-block">
     <h1>OPSCC Two-Comparison Study &mdash; Pipeline Specification</h1>
     <p>Transoral Robotic Surgery vs. Radiation-Based Therapy for Non-Metastatic Oropharyngeal Squamous Cell Carcinoma: Survival and Functional Outcomes in Medicare FFS (Two PSM Comparisons)</p>
-    <p>Data source: CMS Medicare FFS Claims 2016&ndash;H1 2023 &bull; Database: <code>cms_data.duckdb</code> &bull; Last updated: March 2026</p>
+    <p>Data source: CMS Medicare FFS Claims 2016&ndash;H1 2023 &bull; Database: <code>cms_data.duckdb</code> &bull; Last updated: April 2026</p>
 </div>
 
 <div class="toc">
@@ -202,7 +202,7 @@
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h1 id="s1">1. Research Question</h1>
 
-<p>Among Medicare fee-for-service beneficiaries diagnosed with <strong>non-metastatic oropharyngeal squamous cell carcinoma (OPSCC)</strong>, how does <strong>TORS (transoral robotic surgery)</strong> compare to radiation-based therapy with respect to overall survival and functional morbidity (dysphagia, gastrostomy tube, tracheostomy)? Two clinically distinct comparisons are made:</p>
+<p>Among Medicare fee-for-service beneficiaries diagnosed with <strong>non-metastatic oropharyngeal squamous cell carcinoma (OPSCC)</strong>, how does <strong>TORS (transoral robotic surgery)</strong> compare to radiation-based therapy with respect to overall survival and functional morbidity (dysphagia, gastrostomy tube placement, SLP utilization)? Three clinically distinct comparisons are made:</p>
 
 <div class="comparison-box">
     <h4>Comparison A <span class="tag">TORS alone vs RT alone</span></h4>
@@ -212,10 +212,17 @@
 </div>
 
 <div class="comparison-box">
-    <h4>Comparison B <span class="tag">TORS + RT vs CT/CRT</span></h4>
+    <h4>Comparison B <span class="tag">TORS + RT vs CRT</span></h4>
     <p><strong>TORS + RT:</strong> patients who received TORS followed by adjuvant radiation — no chemotherapy in the same window.</p>
-    <p><strong>CT/CRT:</strong> patients who received both chemotherapy and radiation — no TORS in the same window.</p>
+    <p><strong>CRT:</strong> patients who received both chemotherapy and radiation — no TORS in the same window.</p>
     <p><em>Clinical rationale:</em> Compares TORS-based multimodal therapy (surgery + adjuvant RT) to definitive concurrent chemoradiation for locally advanced OPSCC.</p>
+</div>
+
+<div class="comparison-box">
+    <h4>Comparison C <span class="tag">TORS + CRT vs CRT</span></h4>
+    <p><strong>TORS + CRT:</strong> triple-modality patients who received TORS plus chemotherapy plus radiation within 12 months of diagnosis.</p>
+    <p><strong>CRT:</strong> same as Comparison B control arm — chemoradiation without TORS.</p>
+    <p><em>Clinical rationale:</em> Both arms receive chemoradiation. The comparison isolates the contribution of <strong>surgery</strong> on top of CRT — i.e., for a patient already destined to receive CRT, does adding TORS increase functional burden? If the curves overlap or favor TORS+CRT, surgery is not the driver of bad functional outcomes in CRT-class patients; chemo is. Combined with Comp B (where CRT alone has higher G-tube than TORS+RT), the cross-comparison points to chemo, not surgery, as the dominant driver of late functional morbidity.</p>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -246,6 +253,10 @@
     <div class="flow-arrow">&#8594;</div>
     <div class="flow-step py">iptw_analysis.py</div>
     <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">opscc_slp.sql</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-step">opscc_gtube_dependence.sql</div>
+    <div class="flow-arrow">&#8594;</div>
     <div class="flow-step py">survival_analysis.py</div>
     <div class="flow-arrow">&#8594;</div>
     <div class="flow-step py">subgroup_analysis.py</div>
@@ -268,21 +279,23 @@
     <tr><td>2</td><td><code>hnc_confirmed.sql</code></td><td><code>hnc_confirmed</code></td><td>Apply confirmation algorithm: ≥1 inpatient claim OR ≥2 outpatient claims ≥30 days apart</td></tr>
     <tr><td>3</td><td><code>hnc_universe.sql</code></td><td><code>hnc_universe</code></td><td>Thin wrapper promoting <code>hnc_confirmed</code> to <code>hnc_universe</code></td></tr>
     <tr><td>4</td><td><code>opscc_universe.sql</code></td><td><code>opscc_universe</code></td><td>Filter to OPSCC primaries: base of tongue (C01), tonsil (C09), oropharynx (C10), pharynx NOS (C14)</td></tr>
-    <tr><td>5</td><td><code>opscc_cohort.sql</code></td><td><code>opscc_cohort</code></td><td>Apply FFS enrollment criterion: 6 consecutive FFS months from diagnosis date</td></tr>
-    <tr><td>6</td><td><code>opscc_ctcrt.sql</code></td><td>Updates <code>opscc_cohort</code></td><td>Annotate each patient with first TORS date, first <strong>chemotherapy date</strong>, first <strong>radiation date</strong> (stored separately), and metastatic diagnosis flag (C76–C79 within ±90 days)</td></tr>
+    <tr><td>5</td><td><code>opscc_cohort.sql</code></td><td><code>opscc_cohort</code></td><td>Apply FFS enrollment criterion at diagnosis month (<code>BUYIN='3'</code> AND <code>HMOIND IN ('0','4')</code>); exclude patients with prior non-oropharyngeal malignancy in 12-month lookback</td></tr>
+    <tr><td>6</td><td><code>opscc_ctcrt.sql</code></td><td>Updates <code>opscc_cohort</code></td><td>Annotate each patient with first TORS date, first <strong>chemotherapy date</strong>, first <strong>radiation date</strong> (stored separately), <strong>last chemo / last RT date</strong> within the 12-month treatment window (course-completion anchor for delayed-toxicity metrics), and metastatic diagnosis flag (C76–C79 within ±90 days)</td></tr>
     <tr><td>7</td><td><code>opscc_elixhauser.sql</code></td><td><code>opscc_comorbidity</code></td><td>Elixhauser comorbidity flags (Quan ICD-10 adaptation) + van Walraven summary score; 12-month lookback before diagnosis</td></tr>
-    <tr><td>8</td><td><code>opscc_propensity.sql</code></td><td><code>opscc_propensity</code></td><td>Assemble analytic dataset: <strong>four tx_groups</strong> (TORS alone / RT alone / TORS+RT / CT/CRT / Other), first_tx_date, age, sex, race, all Elixhauser flags; exclude metastatic patients</td></tr>
-    <tr><td>9</td><td><code>opscc_outcomes.sql</code></td><td><code>opscc_outcomes</code></td><td>Identify dysphagia, G-tube, and tracheostomy events post-treatment; null out pre-existing conditions</td></tr>
+    <tr><td>8</td><td><code>opscc_propensity.sql</code></td><td><code>opscc_propensity</code></td><td>Assemble analytic dataset: <strong>five tx_groups</strong> (TORS alone / RT alone / TORS+RT / TORS+CRT / CRT / Other), first_tx_date, age, sex, race, all Elixhauser flags; exclude metastatic patients; <strong>exclude patients whose chemo or RT predates the OPSCC diagnosis</strong> (those records reflect prior-cancer treatment, not OPSCC therapy)</td></tr>
+    <tr><td>9</td><td><code>opscc_outcomes.sql</code></td><td><code>opscc_outcomes</code></td><td>Identify dysphagia events post-treatment; null out pre-existing conditions (G-tube handled in step 14)</td></tr>
     <tr><td>10</td><td><code>opscc_survival.sql</code></td><td><code>opscc_survival</code></td><td>Build survival table: death date from MBSF + December-31 censor date per patient; <code>event</code> and <code>t_days</code> from <code>first_tx_date</code></td></tr>
     <tr><td>11</td><td><code>opscc_ffs_dates.sql</code></td><td><code>opscc_ffs_dates</code></td><td>Compute last continuous FFS (Part A+B, non-HMO) date post-treatment; <code>ffs_censor_date = LEAST(last_ffs_date, death_date)</code> used as outcomes censoring date</td></tr>
-    <tr><td>12</td><td><code>iptw_analysis.py</code></td><td><code>opscc_psm_A.parquet</code>, <code>opscc_psm_B.parquet</code></td><td>Two independent 1:1 PSMs (Comp A and Comp B); writes <code>psm_matched_A/B</code> and <code>psm_match_id_A/B</code> columns to <code>opscc_propensity</code></td></tr>
-    <tr><td>13</td><td><code>survival_analysis.py</code></td><td>Console / stdout</td><td>Overall KM curves + log-rank test + Cox PH on PSM cohort; time origin = first_tx_date</td></tr>
-    <tr><td>14</td><td><code>subgroup_analysis.py</code></td><td>Console / stdout</td><td>Subgroup KM + Cox: age &lt;75 restriction; Elixhauser van Walraven tertile stratification</td></tr>
-    <tr><td>15</td><td><code>outcomes_analysis.py</code></td><td>Console / stdout</td><td>OR tables for dysphagia, G-tube, trach at 6mo/1yr/3yr/5yr/anytime; stratified by age and Elixhauser tertile</td></tr>
-    <tr><td>16</td><td><code>make_table1.py</code></td><td><code>table1_psm.xlsx</code></td><td>Formatted Table 1: pre- and post-PSM demographics with SMD columns</td></tr>
-    <tr><td>17</td><td><code>make_outcomes_table.py</code></td><td><code>outcomes_tables.xlsx</code></td><td>Formatted OR tables (one sheet per outcome) exported to Excel</td></tr>
-    <tr><td>18</td><td><code>make_figures.py</code></td><td><code>fig_km_A.png</code>, <code>fig_km_B.png</code>, <code>fig_km_sub_A.png</code>, <code>fig_km_sub_B.png</code>, <code>fig_forest_A.png</code>, <code>fig_forest_B.png</code></td><td>KM overall survival, subgroup KM, and forest plot for each comparison</td></tr>
-    <tr><td>19</td><td><code>make_flowchart.py</code></td><td><code>cohort_flowchart.png</code></td><td>Horizontal cohort selection flowchart with exclusion drops</td></tr>
+    <tr><td>12</td><td><code>iptw_analysis.py</code></td><td><code>opscc_psm_A/B/C.parquet</code></td><td>Three independent 1:1 PSMs (Comp A, B, C); writes <code>psm_matched_A/B/C</code> and <code>psm_match_id_A/B/C</code> columns to <code>opscc_propensity</code>. Comp A excludes C77 (nodal) patients before matching.</td></tr>
+    <tr><td>13</td><td><code>opscc_slp.sql</code></td><td><code>opscc_slp</code></td><td>Multi-interval SLP utilization for PSM-matched patients (A∪B∪C); scans carrier, outpatient, SNF, HHA claims. Outputs cumulative-incidence flags at 14d/30d/90d/180d/1yr/3yr post-tx plus pre-tx baseline.</td></tr>
+    <tr><td>14</td><td><code>opscc_gtube_dependence.sql</code></td><td><code>opscc_gtube_dependence</code></td><td>Multi-interval G-tube placement tracking for PSM-matched patients. Primary metric: <code>placement_by_{T}</code> (procedure codes only). Sensitivity: <code>event_by_{T}</code> (placement + exchange + Z93.1). Pre-tx baseline placement included as descriptor. <strong>Delayed-placement metric</strong> (anchored on treatment completion, 90d washout): <code>delayed_placement_by_{180,365,730,1095}d</code> + <code>placement_through_completion90</code> (incident-eligibility).</td></tr>
+    <tr><td>15</td><td><code>survival_analysis.py</code></td><td>Console / stdout</td><td>Overall KM curves + log-rank test + Cox PH on PSM cohort; time origin = first_tx_date; applied to Comp A/B/C</td></tr>
+    <tr><td>16</td><td><code>subgroup_analysis.py</code></td><td>Console / stdout</td><td>Subgroup KM + Cox: age &lt;75/&ge;75; Elixhauser van Walraven binary (VW &le;0 = Low, VW &gt;0 = High)</td></tr>
+    <tr><td>17</td><td><code>outcomes_analysis.py</code></td><td>Console / stdout</td><td>Cumulative-incidence tables for G-tube placement and SLP at 14d/30d/90d/180d/1yr/3yr; ORs for dysphagia at 6mo/1yr/3yr/5yr/anytime; stratified by age and Elixhauser binary. <strong>Delayed-toxicity section</strong> (G-tube/SLP/dysphagia after treatment completion, &ge;90d washout) reported all-comers and incident at 6mo/1yr/2yr/3yr post-completion.</td></tr>
+    <tr><td>18</td><td><code>make_table1.py</code></td><td><code>table1_psm.xlsx</code></td><td>Formatted Table 1: pre- and post-PSM demographics with SMD columns for all three comparisons</td></tr>
+    <tr><td>19</td><td><code>make_outcomes_table.py</code></td><td><code>outcomes_tables.xlsx</code></td><td>Cumulative-incidence + binary-outcome OR tables (one sheet per comparison) exported to Excel</td></tr>
+    <tr><td>20</td><td><code>make_figures.py</code></td><td><code>fig_km_{A,B,C}.png</code>, <code>fig_km_sub_{A,B,C}.png</code>, <code>fig_forest_{A,B,C}.png</code>, <code>fig_love_{A,B,C}.png</code>, <code>fig_cuminc_gtube.png</code>, <code>fig_cuminc_slp.png</code>, <code>fig_delayed_gtube.png</code></td><td>KM overall + subgroup, forest plot, love plot per comparison; cross-comparison cumulative-incidence panels for G-tube and SLP; plus a delayed-G-tube-after-completion panel</td></tr>
+    <tr><td>21</td><td><code>make_flowchart.py</code></td><td><code>cohort_flowchart.png</code></td><td>Horizontal cohort selection flowchart with exclusion drops and five treatment-group boxes</td></tr>
 </table>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -325,9 +338,10 @@
 
 <div class="step-box inclusion">
     <span class="step-number">1</span>
-    <strong>Continuous FFS Medicare enrollment</strong><br>
-    Must have 6 consecutive months of fee-for-service (FFS) enrollment beginning with the month of <code>first_hnc_date</code>.<br>
-    FFS month defined as: <code>HMOIND = '0'</code> (no HMO) AND <code>MDCR_STUS_CD IN ('10','11','20','21')</code> (Part A+B).
+    <strong>FFS Medicare enrollment at diagnosis</strong><br>
+    Must be enrolled in fee-for-service (FFS) Medicare in the <strong>month of <code>first_hnc_date</code></strong>.<br>
+    FFS month defined as: <code>BUYIN = '3'</code> (Part A+B) AND <code>HMOIND IN ('0','4')</code> (no HMO).<br>
+    Post-diagnosis FFS dropout is handled by censoring in <code>opscc_ffs_dates.sql</code> rather than an upfront consecutive-month requirement.
 </div>
 
 <h2 id="s3-5">3.5 Exclusion Criteria</h2>
@@ -335,19 +349,31 @@
 <div class="step-box exclusion">
     <span class="step-number">X1</span>
     <strong>Metastatic disease</strong><br>
-    Any diagnosis of <code>C76%</code>, <code>C77%</code>, <code>C78%</code>, or <code>C79%</code> in any claim within <strong>±90 days</strong> of <code>first_hnc_date</code>. Applied at the <code>opscc_propensity.sql</code> step (<code>has_metastatic_dx = FALSE</code>).
+    Any diagnosis of <code>C78%</code> or <code>C79%</code> in any claim within <strong>&plusmn;90 days</strong> of <code>first_hnc_date</code>. Applied at the <code>opscc_propensity.sql</code> step (<code>has_metastatic_dx = FALSE</code>).
+</div>
+
+<div class="step-box exclusion">
+    <span class="step-number">X1b</span>
+    <strong>Pre-diagnosis chemo or RT (strict); pre-diagnosis TORS &gt;30 days (loose)</strong><br>
+    Patients with <code>first_chemo_date</code> or <code>first_rt_date</code> recorded <em>before</em> their <code>first_hnc_date</code> are excluded entirely. Such records almost certainly reflect treatment for a prior unrelated cancer (e.g., chemo for breast cancer years earlier), not OPSCC therapy. For TORS, a window of 30 days before <code>first_hnc_date</code> is allowed because TORS itself is often the diagnostic procedure — pathology from the excision establishes the OPSCC diagnosis, and the billed <code>first_hnc_date</code> often follows the surgery by days to weeks. Patients with TORS more than 30 days before <code>first_hnc_date</code> are excluded as suggestive of an unrelated prior procedure. Applied at <code>opscc_propensity.sql</code>.
+</div>
+
+<div class="step-box exclusion">
+    <span class="step-number">X1c</span>
+    <strong>Chemo before TORS</strong><br>
+    Patients with both TORS and chemotherapy where chemo preceded TORS are excluded. This pattern represents either induction-chemo-then-surgery sequences or salvage TORS after CRT failure — both distinct from the intended "TORS + adjuvant CRT" pathway (surgery first, then chemoradiation). Applied at <code>opscc_propensity.sql</code>. Affects the TORS + CRT arm only.
 </div>
 
 <div class="step-box exclusion">
     <span class="step-number">X2</span>
     <strong>Treatment group = "Other"</strong><br>
-    Patients who do not fit any of the four protocol-defined groups (e.g., TORS + chemotherapy without radiation, chemotherapy alone, TORS + chemotherapy + radiation) are assigned <code>tx_group = 'Other'</code> and excluded from both PSM analyses. They are retained in <code>opscc_propensity</code> for descriptive purposes.
+    Patients who do not fit any of the five protocol-defined groups (e.g., chemotherapy alone, TORS + chemotherapy without radiation) are assigned <code>tx_group = 'Other'</code> and excluded from all PSM analyses. They are retained in <code>opscc_propensity</code> for descriptive purposes.
 </div>
 
 <div class="step-box exclusion">
-    <span class="step-number">X4</span>
-    <strong>C77 (nodal disease) at time of outcomes analysis</strong><br>
-    Patients with any C77% code in inpatient/outpatient/carrier claims are excluded from functional outcome OR analysis and subgroup survival analysis. Applied at the Python analysis step.
+    <span class="step-number">X3</span>
+    <strong>C77 (nodal disease) &mdash; Comparison A only</strong><br>
+    Patients with any C77% code (nodal metastasis) in inpatient/outpatient/carrier claims within &plusmn;90 days of diagnosis are excluded from <strong>Comparison A</strong> at the PSM stage (<code>iptw_analysis.py</code> filters <code>has_nodal_dx == False</code> before matching). C77 patients are <strong>retained</strong> in Comparison B and Comparison C, where nodal disease is expected in the multimodal treatment population.
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -362,7 +388,7 @@
     <tr><td>Carrier / Outpatient revenue</td><td>CPT/HCPCS</td><td><code>1007190</code>, <code>42842</code>, <code>42844</code>, <code>42845</code></td></tr>
 </table>
 
-<h3>Chemotherapy (for CT/CRT)</h3>
+<h3>Chemotherapy (for CRT)</h3>
 <table>
     <tr><th>Source</th><th>Code Type</th><th>Codes</th></tr>
     <tr><td>Carrier / Outpatient revenue</td><td>HCPCS J-codes</td><td><code>J9060</code> (cisplatin), <code>J9045</code> (carboplatin), <code>J9190</code> (5-FU), <code>J9171</code> (docetaxel), <code>J9201</code> (gemcitabine), <code>J9055</code> (cetuximab)</td></tr>
@@ -392,7 +418,8 @@
     <tr><td><strong>TORS alone</strong></td><td>✓</td><td>✗</td><td>✗</td><td><code>first_tors_date</code></td><td>Comparison A (treated)</td></tr>
     <tr><td><strong>RT alone</strong></td><td>✗</td><td>✗</td><td>✓</td><td><code>first_rt_date</code></td><td>Comparison A (control)</td></tr>
     <tr><td><strong>TORS + RT</strong></td><td>✓</td><td>✗</td><td>✓</td><td><code>first_tors_date</code></td><td>Comparison B (treated)</td></tr>
-    <tr><td><strong>CT/CRT</strong></td><td>✗</td><td>✓</td><td>✓</td><td><code>LEAST(first_chemo_date, first_rt_date)</code></td><td>Comparison B (control)</td></tr>
+    <tr><td><strong>TORS + CRT</strong></td><td>✓</td><td>✓</td><td>✓</td><td><code>first_tors_date</code></td><td>Comparison C (treated)</td></tr>
+    <tr><td><strong>CRT</strong></td><td>&#10007;</td><td>&#10003;</td><td>&#10003;</td><td><code>LEAST(first_chemo_date, first_rt_date)</code></td><td>Comp B (control); Comp C (control)</td></tr>
     <tr><td><strong>Other</strong></td><td colspan="4">Any other combination (TORS+chemo, chemo alone, TORS+chemo+RT, etc.)</td><td>Excluded</td></tr>
 </table>
 
@@ -401,7 +428,7 @@
 
 <p>Elixhauser comorbidity flags are computed via <code>opscc_elixhauser.sql</code> using the <strong>Quan et al. ICD-10-CM adaptation</strong> (see <code>comorbidity.py</code> for code lists). The lookback window is <strong>12 months before <code>first_hnc_date</code></strong> (exclusive), applied across all three claim sources. Index HNC codes are excluded by the lookback window.</p>
 
-<p>The <strong>van Walraven summary score</strong> is computed from the 31 Elixhauser flags using the weights from van Walraven et al. (2009). It is used as a continuous covariate in the propensity model and as a stratification variable (tertiles) in subgroup analyses.</p>
+<p>The <strong>van Walraven summary score</strong> is computed from the 31 Elixhauser flags using the weights from van Walraven et al. (2009). It is used as a continuous covariate in the propensity model and as a binary stratification variable (VW &le;0 = Low, VW &gt;0 = High) in subgroup analyses.</p>
 
 <table>
     <tr><th>Flag</th><th>Condition</th><th>van Walraven Weight</th></tr>
@@ -441,21 +468,21 @@
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h1 id="s6">6. Propensity Score Matching</h1>
 
-<p>Implemented in <code>iptw_analysis.py</code> using <code>sklearn.linear_model.LogisticRegression</code>. Two independent PSM runs are performed — one per comparison — via a shared <code>run_psm()</code> function.</p>
+<p>Implemented in <code>iptw_analysis.py</code> using <code>sklearn.linear_model.LogisticRegression</code>. Three independent PSM runs are performed — one per comparison — via a shared <code>run_psm()</code> function.</p>
 
 <table>
-    <tr><th>Parameter</th><th>Comparison A</th><th>Comparison B</th></tr>
-    <tr><td>Method</td><td colspan="2">1:1 nearest-neighbor greedy matching on logit(PS)</td></tr>
-    <tr><td>Caliper</td><td colspan="2">0.2 × SD(logit PS)</td></tr>
-    <tr><td>Population</td><td><code>tx_group IN ('TORS alone', 'RT alone')</code></td><td><code>tx_group IN ('TORS + RT', 'CT/CRT')</code></td></tr>
-    <tr><td>Treatment indicator</td><td>1 = TORS alone, 0 = RT alone</td><td>1 = TORS + RT, 0 = CT/CRT</td></tr>
-    <tr><td>Covariates</td><td colspan="2">Age (continuous), sex, race dummies, all 31 Elixhauser flags</td></tr>
-    <tr><td>Parquet output</td><td><code>opscc_psm_A.parquet</code></td><td><code>opscc_psm_B.parquet</code></td></tr>
-    <tr><td>DB columns written</td><td><code>psm_matched_A</code>, <code>psm_match_id_A</code></td><td><code>psm_matched_B</code>, <code>psm_match_id_B</code></td></tr>
-    <tr><td>Balance check</td><td colspan="2">SMD reported in Table 1 for both comparison pairs</td></tr>
+    <tr><th>Parameter</th><th>Comparison A</th><th>Comparison B</th><th>Comparison C</th></tr>
+    <tr><td>Method</td><td colspan="3">1:1 nearest-neighbor greedy matching on logit(PS)</td></tr>
+    <tr><td>Caliper</td><td colspan="3">0.2 × SD(logit PS)</td></tr>
+    <tr><td>Population</td><td><code>tx_group IN ('TORS alone', 'RT alone')</code><br>C77 (nodal) patients excluded</td><td><code>tx_group IN ('TORS + RT', 'CRT')</code></td><td><code>tx_group IN ('TORS + CRT', 'CRT')</code></td></tr>
+    <tr><td>Treatment indicator</td><td>1 = TORS alone, 0 = RT alone</td><td>1 = TORS + RT, 0 = CRT</td><td>1 = TORS + CRT, 0 = CRT</td></tr>
+    <tr><td>Covariates</td><td colspan="3">Age (continuous), sex, race dummies, all 31 Elixhauser flags</td></tr>
+    <tr><td>Parquet output</td><td><code>opscc_psm_A.parquet</code></td><td><code>opscc_psm_B.parquet</code></td><td><code>opscc_psm_C.parquet</code></td></tr>
+    <tr><td>DB columns written</td><td><code>psm_matched_A</code>, <code>psm_match_id_A</code></td><td><code>psm_matched_B</code>, <code>psm_match_id_B</code></td><td><code>psm_matched_C</code>, <code>psm_match_id_C</code></td></tr>
+    <tr><td>Balance check</td><td colspan="3">SMD reported in Table 1 for all three comparisons</td></tr>
 </table>
 
-<div class="note">All downstream analysis scripts filter <code>opscc_propensity</code> by <code>psm_matched_A = TRUE</code> or <code>psm_matched_B = TRUE</code> to select the appropriate matched cohort for each comparison.</div>
+<div class="note">All downstream analysis scripts filter <code>opscc_propensity</code> by <code>psm_matched_A</code>, <code>psm_matched_B</code>, or <code>psm_matched_C</code> to select the appropriate matched cohort for each comparison.</div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h1 id="s7">7. Outcomes</h1>
@@ -478,50 +505,58 @@
         <p><strong>Definition:</strong> New ICD-10-CM diagnosis of R131x after <code>first_tx_date</code></p>
         <p class="codes">ICD-10-CM: R131* (prefix match, LEFT(code,4)='R131')</p>
         <p><strong>Sources:</strong> Inpatient, outpatient, carrier dx codes</p>
+        <p><strong>Table:</strong> <code>opscc_outcomes</code> (step 9)</p>
     </div>
     <div class="outcome-card secondary">
-        <h4>Gastrostomy Tube <span class="badge sec">SECONDARY</span></h4>
-        <p><strong>Definition:</strong> New G-tube placement or dependence after <code>first_tx_date</code></p>
-        <p class="codes">ICD-10-CM: Z931* (prefix) | CPT: 43246, 49440 | HCPCS: B4087, B4088 | ICD-10-PCS: 0DH63UZ, 0DH60UZ</p>
-        <p><strong>Sources:</strong> Inpatient dx + PCS, outpatient dx, carrier dx + CPT, revenue CPT</p>
+        <h4>Gastrostomy Tube placement <span class="badge sec">SECONDARY</span></h4>
+        <p><strong>Framework:</strong> Multi-interval cumulative incidence of new G-tube placement procedures anchored on first treatment date. <strong>Placement procedure codes only</strong> &mdash; Z93.1 status diagnosis and exchange CPTs are excluded from the primary metric (Z93.1 is unreliable; it re-fires at any encounter while a tube exists, inflating rates in arms with high pre-existing tube prevalence).</p>
+        <p><strong>Primary flags:</strong> Binary <code>placement_by_{T}</code> for T &isin; {14d, 30d, 90d, 180d, 365d, 1095d} indicating at least one placement procedure in [<code>first_tx_date</code>, <code>first_tx_date + T</code>]. Reported both unconditionally and at-risk-conditionally (denominator restricted to patients alive and FFS-enrolled at T).</p>
+        <p><strong>Sensitivity flags:</strong> <code>event_by_{T}</code> using the broader code set (placement + exchange + Z93.1) preserved in the SQL output for sensitivity analysis only &mdash; not used in forest plot, primary tables, or cumulative-incidence figure.</p>
+        <p><strong>Pre-treatment baseline:</strong> <code>pre_placement_any</code> covering [<code>dx_date</code>, <code>first_tx_date</code>) &mdash; reported as descriptor of baseline severity, not used as exclusion.</p>
+        <p><strong>Delayed placement (marker for late swallowing failure / dependence):</strong> Anchored on <strong>treatment completion</strong> (<code>tx_completion_date</code> = last RT/chemo date, falling back to surgery date for TORS-alone) rather than treatment start. A "delayed" placement is one occurring <strong>&ge;90 days after completion</strong> (washout that clears the acute mucositis-recovery window). Flags <code>delayed_placement_by_{180,365,730,1095}d</code> give cumulative incidence at 6mo/1yr/2yr/3yr post-completion. Reported two ways: <strong>all-comers</strong> (every matched patient) and <strong>incident</strong> (denominator restricted to patients who reached completion+90d with no prior tube, via <code>placement_through_completion90 = FALSE</code>). Same framework applied to SLP (<code>delayed_slp_by_{T}</code>) and dysphagia (<code>delayed_dysphagia_by_{T}</code>).</p>
+        <p class="codes"><strong>Primary code set (placement procedures only):</strong> CPT 43246, 49440 | HCPCS B4087, B4088 | ICD-10-PCS 0DH60UZ, 0DH63UZ</p>
+        <p class="codes"><strong>Sensitivity-only codes:</strong> CPT 43760, 43762, 43763, 49450 (exchange/maintenance) | Z93.1 (gastrostomy status diagnosis, 25 slots)</p>
+        <p><strong>Sources:</strong> Inpatient PCS, outpatient PCS, carrier line (HCPCS), outpatient revenue (HCPCS)</p>
+        <p><strong>Table:</strong> <code>opscc_gtube_dependence</code> (step 14, post-PSM). Forest-plot canonical timepoint: <code>placement_by_90d</code>.</p>
     </div>
     <div class="outcome-card secondary">
-        <h4>Tracheostomy <span class="badge sec">SECONDARY</span></h4>
-        <p><strong>Definition:</strong> New tracheostomy procedure or dependence after <code>first_tx_date</code></p>
-        <p class="codes">ICD-10-CM: Z930* (prefix) | CPT: 31600, 31603, 31610, 31612</p>
-        <p><strong>Sources:</strong> Inpatient dx, outpatient dx, carrier dx + CPT, revenue CPT</p>
+        <h4>SLP Utilization <span class="badge sec">SECONDARY</span></h4>
+        <p><strong>Framework:</strong> Same multi-interval cumulative-incidence framework as G-tube.</p>
+        <p><strong>Cumulative-incidence flags:</strong> Binary <code>event_by_{T}</code> for the same six time boundaries, plus pre-treatment baseline columns.</p>
+        <p class="codes">HCPCS: 92521, 92522, 92523 (eval), 92507, 92526, 97129, 97130 (treatment), 92610, 92611, 92612, 92616, 92617 (swallowing) | Revenue center: 0440&ndash;0449</p>
+        <p><strong>Sources:</strong> Carrier (HCPCS), outpatient revenue (HCPCS + REV_CNTR 044x), SNF revenue (REV_CNTR 044x), HHA revenue (REV_CNTR 044x)</p>
+        <p><strong>Table:</strong> <code>opscc_slp</code> (step 13, post-PSM). Forest-plot canonical timepoint: <code>event_by_90d</code>.</p>
     </div>
 </div>
 
 <h2 id="s7-3">7.3 Outcome Code Definitions</h2>
 <table>
     <tr><th>Outcome</th><th>Code System</th><th>Codes / Pattern</th><th>Match Type</th></tr>
-    <tr><td>Dysphagia</td><td>ICD-10-CM</td><td><code>R131*</code> (R1310–R1319)</td><td>Prefix: <code>LEFT(code,4)='R131'</code></td></tr>
-    <tr><td>G-tube</td><td>ICD-10-CM</td><td><code>Z931*</code></td><td>Prefix: <code>LEFT(code,4)='Z931'</code></td></tr>
-    <tr><td>G-tube</td><td>CPT</td><td><code>43246</code>, <code>49440</code></td><td>Exact</td></tr>
-    <tr><td>G-tube</td><td>HCPCS</td><td><code>B4087</code>, <code>B4088</code></td><td>Exact</td></tr>
-    <tr><td>G-tube</td><td>ICD-10-PCS</td><td><code>0DH63UZ</code>, <code>0DH60UZ</code></td><td>Exact</td></tr>
-    <tr><td>Tracheostomy</td><td>ICD-10-CM</td><td><code>Z930*</code></td><td>Prefix: <code>LEFT(code,4)='Z930'</code></td></tr>
-    <tr><td>Tracheostomy</td><td>CPT</td><td><code>31600</code>, <code>31603</code>, <code>31610</code>, <code>31612</code></td><td>Exact</td></tr>
+    <tr><td>Dysphagia</td><td>ICD-10-CM</td><td><code>R131*</code> (R1310&ndash;R1319)</td><td>Prefix: <code>LEFT(code,4)='R131'</code></td></tr>
+    <tr><td><strong>G-tube placement (PRIMARY)</strong></td><td>CPT</td><td><code>43246</code>, <code>49440</code></td><td>Exact</td></tr>
+    <tr><td><strong>G-tube placement (PRIMARY)</strong></td><td>HCPCS</td><td><code>B4087</code>, <code>B4088</code></td><td>Exact</td></tr>
+    <tr><td><strong>G-tube placement (PRIMARY)</strong></td><td>ICD-10-PCS</td><td><code>0DH63UZ</code>, <code>0DH60UZ</code></td><td>Exact across procedure slots</td></tr>
+    <tr><td>G-tube exchange (sensitivity only)</td><td>CPT</td><td><code>43760</code>, <code>43762</code>, <code>43763</code>, <code>49450</code></td><td>Exact &mdash; <strong>excluded from primary metric</strong></td></tr>
+    <tr><td>G-tube status (sensitivity only)</td><td>ICD-10-CM</td><td><code>Z931</code></td><td>Exact across 25 dx slots (inp + out) &mdash; <strong>excluded from primary metric</strong> due to unreliable re-coding</td></tr>
+    <tr><td>SLP</td><td>CPT/HCPCS</td><td><code>92521</code>, <code>92522</code>, <code>92523</code>, <code>92507</code>, <code>92526</code>, <code>97129</code>, <code>97130</code>, <code>92610</code>, <code>92611</code>, <code>92612</code>, <code>92616</code>, <code>92617</code></td><td>Exact</td></tr>
+    <tr><td>SLP</td><td>Revenue center</td><td><code>0440&ndash;0449</code> (Speech-Language Pathology)</td><td>Prefix: <code>LEFT(REV_CNTR,3)='044'</code></td></tr>
 </table>
 
-<h2 id="s7-4">7.4 Pre-existing Outcome Exclusion</h2>
-<p>For each patient and each functional outcome, any code appearing <strong>before <code>first_tx_date</code></strong> (going back to <code>first_tx_date − 365 days</code>) sets that outcome field to <code>NULL</code> for that patient. This excludes pre-existing conditions from the outcome analysis but retains the patient in the cohort. Applied in <code>opscc_outcomes.sql</code> via the <code>pre_existing</code> boolean flag.</p>
+<h2 id="s7-4">7.4 Pre-existing Outcomes Handling</h2>
+<p>The G-tube and SLP analyses use a <strong>dx-anchored multi-interval framework</strong> that surfaces pre-treatment events as explicit columns (<code>pre_event_any</code>, <code>pre_event_count</code>) rather than as exclusion criteria. Pre-treatment events cover the window [<code>dx_date</code>, <code>first_tx_date</code>) and are reported as a baseline-severity descriptor.</p>
+<p>For dysphagia (<code>opscc_outcomes.sql</code>), the legacy <code>pre_existing</code> rule is retained: any code appearing in [<code>first_tx_date</code> &minus; 365d, <code>first_tx_date</code>) sets that outcome field to <code>NULL</code>.</p>
 
 <h2 id="s7-5">7.5 Reported Timepoints</h2>
 <table>
-    <tr><th>Timepoint</th><th>Days from <code>first_tx_date</code></th></tr>
-    <tr><td>6 months</td><td>≤ 183 days</td></tr>
-    <tr><td>1 year</td><td>≤ 365 days</td></tr>
-    <tr><td>3 years</td><td>≤ 1095 days</td></tr>
-    <tr><td>5 years</td><td>≤ 1825 days</td></tr>
-    <tr><td>Anytime</td><td>Any post-treatment date</td></tr>
+    <tr><th>Outcome family</th><th>Timepoints</th></tr>
+    <tr><td>G-tube + SLP cumulative incidence</td><td>14d, 30d, 90d, 180d, 1-yr, 3-yr (multi-interval panel + canonical 90d OR on forest plot)</td></tr>
+    <tr><td>Dysphagia</td><td>6-mo (182d), 1-yr, 3-yr, 5-yr, Anytime (legacy follow-up-eligibility cutoffs)</td></tr>
 </table>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h1 id="s8">8. Statistical Analysis</h1>
 
-<p>All analyses loop over <code>COMPARISONS = [('A', 'psm_matched_A', ...), ('B', 'psm_matched_B', ...)]</code>. Each comparison filters the matched cohort independently before analysis.</p>
+<p>All analyses loop over <code>COMPARISONS = [('A', 'psm_matched_A', ...), ('B', 'psm_matched_B', ...), ('C', 'psm_matched_C', ...)]</code>. Each comparison filters the matched cohort independently before analysis.</p>
 
 <h3>Survival Analysis (<code>survival_analysis.py</code>)</h3>
 <ul>
@@ -532,27 +567,28 @@
 
 <h3>Functional Outcomes Analysis (<code>outcomes_analysis.py</code>)</h3>
 <ul>
-    <li><strong>Odds ratios</strong> computed from 2×2 contingency tables at each timepoint.</li>
+    <li><strong>G-tube placement:</strong> Cumulative-incidence proportion of new G-tube placements at each interval (14d, 30d, 90d, 180d, 1-yr, 3-yr) per arm, with 95% Wilson CIs. Reported both unconditionally (treat death/disenrollment as no-event) and at-risk-conditionally. OR + 95% CI computed at the canonical 90d timepoint. <strong>Placement procedure codes only</strong> — Z93.1 status and exchange CPTs excluded from primary metric.</li>
+    <li><strong>SLP utilization:</strong> Cumulative-incidence proportion of any SLP-coded visit at each interval, same intervals and CI framework as G-tube.</li>
+    <li><strong>Dysphagia:</strong> ORs from 2&times;2 contingency tables at each legacy timepoint with the follow-up-eligibility rule (patient counted only if follow-up reached T or event occurred before T).</li>
     <li>Chi-square test for independence (<code>scipy.stats.chi2_contingency</code>).</li>
-    <li>Pre-existing conditions excluded (NULL outcomes not counted in denominator).</li>
-    <li>Reference group: control arm of each comparison (RT alone for Comp A; CT/CRT for Comp B). OR &lt; 1 favors the TORS arm.</li>
-    <li>C77 nodal disease patients excluded from functional outcome analyses.</li>
+    <li>Pre-treatment events for G-tube/SLP are reported as a baseline descriptor (<code>pre_event_any</code>), not as exclusion criteria.</li>
+    <li>Reference group: control arm of each comparison. OR &lt; 1 favors the TORS-bearing arm.</li>
+    <li>Stratified by: All matched, Age &lt;75, Age &ge;75, Low comorbidity (VW &le;0), High comorbidity (VW &gt;0).</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h1 id="s9">9. Subgroup Analyses</h1>
 
-<p>All subgroup analyses are run on the PSM cohort with C77 patients excluded (<code>subgroup_analysis.py</code>).</p>
+<p>All subgroup analyses are run on the PSM cohort (<code>subgroup_analysis.py</code>). Comp A excludes C77 (nodal) patients via PSM; Comp B and Comp C retain them.</p>
 
 <table>
     <tr><th>Subgroup</th><th>Definition</th><th>Analysis</th></tr>
     <tr><td>Age &lt;75</td><td><code>age_at_dx &lt; 75</code></td><td>KM + log-rank + Cox PH</td></tr>
-    <tr><td>Age ≥75</td><td><code>age_at_dx ≥ 75</code></td><td>KM + log-rank + Cox PH</td></tr>
-    <tr><td>Elixhauser Low</td><td>van Walraven score in bottom tertile</td><td>KM + log-rank + Cox PH</td></tr>
-    <tr><td>Elixhauser Mid</td><td>van Walraven score in middle tertile</td><td>KM + log-rank + Cox PH</td></tr>
-    <tr><td>Elixhauser High</td><td>van Walraven score in top tertile</td><td>KM + log-rank + Cox PH</td></tr>
+    <tr><td>Age &ge;75</td><td><code>age_at_dx &ge; 75</code></td><td>KM + log-rank + Cox PH</td></tr>
+    <tr><td>Low comorbidity</td><td>van Walraven score &le; 0</td><td>KM + log-rank + Cox PH</td></tr>
+    <tr><td>High comorbidity</td><td>van Walraven score &gt; 0</td><td>KM + log-rank + Cox PH</td></tr>
 </table>
-<p>Subgroup ORs for functional outcomes are also included in the per-comparison forest plots (<code>fig_forest_A.png</code>, <code>fig_forest_B.png</code>).</p>
+<p>Subgroup ORs for functional outcomes are also included in the per-comparison forest plots (<code>fig_forest_{A,B,C}.png</code>).</p>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h1 id="s10">10. Code Reference</h1>
@@ -571,20 +607,22 @@
     <tr><td><code>queries/opscc_outcomes.sql</code></td><td>SQL</td><td>Functional outcome extraction</td></tr>
     <tr><td><code>queries/opscc_survival.sql</code></td><td>SQL</td><td>Survival table: death date + Dec-31 censor + event flag per patient</td></tr>
     <tr><td><code>queries/opscc_ffs_dates.sql</code></td><td>SQL</td><td>Last continuous FFS date + <code>ffs_censor_date</code> for outcomes censoring</td></tr>
+    <tr><td><code>queries/opscc_slp.sql</code></td><td>SQL</td><td>Multi-interval SLP utilization for PSM-matched patients only (post-PSM); carrier, outpatient, SNF, HHA claims</td></tr>
+    <tr><td><code>queries/opscc_gtube_dependence.sql</code></td><td>SQL</td><td>Multi-interval G-tube event tracking (post-PSM); placement + exchange CPTs + Z93.1 dx across inp/out/carrier/revenue</td></tr>
     <tr><td><code>comorbidity.py</code></td><td>Python</td><td>ICD-10 code lists for Elixhauser conditions (reference module)</td></tr>
-    <tr><td><code>iptw_analysis.py</code></td><td>Python</td><td>Two independent PSMs; outputs <code>opscc_psm_A.parquet</code> and <code>opscc_psm_B.parquet</code></td></tr>
+    <tr><td><code>iptw_analysis.py</code></td><td>Python</td><td>Three independent PSMs; outputs <code>opscc_psm_A.parquet</code>, <code>opscc_psm_B.parquet</code>, <code>opscc_psm_C.parquet</code></td></tr>
     <tr><td><code>iptw_sensitivity.py</code></td><td>Python</td><td>IPTW sensitivity analysis (stabilized weights, trimmed 1st/99th pct); weighted Cox PH + weighted ORs — read-only, run standalone</td></tr>
     <tr><td><code>survival_analysis.py</code></td><td>Python</td><td>KM + Cox PH overall survival</td></tr>
     <tr><td><code>subgroup_analysis.py</code></td><td>Python</td><td>Subgroup KM + Cox PH</td></tr>
     <tr><td><code>outcomes_analysis.py</code></td><td>Python</td><td>Functional outcome odds ratios</td></tr>
     <tr><td><code>make_table1.py</code></td><td>Python</td><td>Table 1 demographics → Excel</td></tr>
     <tr><td><code>make_outcomes_table.py</code></td><td>Python</td><td>OR tables → Excel</td></tr>
-    <tr><td><code>make_figures.py</code></td><td>Python</td><td>Publication figures per comparison: KM overall, subgroup KM, forest plot (<code>fig_km_A/B.png</code>, <code>fig_km_sub_A/B.png</code>, <code>fig_forest_A/B.png</code>)</td></tr>
+    <tr><td><code>make_figures.py</code></td><td>Python</td><td>Publication figures per comparison: KM overall, subgroup KM, forest plot, love plot (<code>fig_km_{A,B,C}.png</code>, <code>fig_km_sub_{A,B,C}.png</code>, <code>fig_forest_{A,B,C}.png</code>, <code>fig_love_{A,B,C}.png</code>) plus cross-comparison cumulative-incidence panels for G-tube and SLP (<code>fig_cuminc_gtube.png</code>, <code>fig_cuminc_slp.png</code>) and a delayed-G-tube-after-completion panel (<code>fig_delayed_gtube.png</code>)</td></tr>
     <tr><td><code>make_flowchart.py</code></td><td>Python</td><td>Cohort selection flowchart</td></tr>
     <tr><td><code>fix_views.py</code></td><td>Python</td><td>Utility: update DuckDB view paths if database drive changes</td></tr>
 </table>
 
-<div class="tip">To run from a specific step: <code>python run_pipeline.py &lt;step_number&gt;</code>. SQL steps (1–11) require a writable DuckDB connection. Python steps (12–19) are run as subprocesses and read from the database in read-only mode. <code>iptw_sensitivity.py</code> is a standalone sensitivity script not part of the main pipeline.</div>
+<div class="tip">To run from a specific step: <code>python run_pipeline.py &lt;step_number&gt;</code>. SQL steps (1&ndash;11) require a writable DuckDB connection. Step 12 (PSM) writes match flags to the database. Steps 13&ndash;14 (SLP + G-tube SQL) run post-PSM and require matched flags. Python steps (15&ndash;21) are run as subprocesses and read from the database in read-only mode. <code>iptw_sensitivity.py</code> is a standalone sensitivity script not part of the main pipeline.</div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h1 id="s11">11. Key Design Decisions</h1>
@@ -597,11 +635,28 @@
     <tr><td>±90-day metastatic exclusion window</td><td>Distinguishes de novo metastatic disease from late recurrence while allowing adequate staging workup time</td></tr>
     <tr><td>Pre-existing outcome exclusion (not patient exclusion)</td><td>Retains sample size; nulling the outcome for pre-existing patients avoids attributing prevalent disease to treatment</td></tr>
     <tr><td>Logit PS caliper at 0.2 × SD</td><td>Standard recommended caliper (Austin 2011); balances match quality vs. sample retention</td></tr>
-    <tr><td>CT/CRT group requires <em>both</em> chemo AND radiation</td><td>Distinguishes definitive chemoradiation from RT alone or chemo alone; chemo and RT dates stored separately to enable four-group classification</td></tr>
-    <tr><td>Two independent PSM runs (A and B)</td><td>Comp A and Comp B have distinct patient populations (RT-naive vs chemo-naive); a single matched cohort cannot serve both comparisons</td></tr>
-    <tr><td>C77 nodal exclusion for functional outcomes</td><td>Nodal disease substantially increases risk of G-tube and trach independent of treatment; confounds functional outcome comparisons</td></tr>
-    <tr><td>Van Walraven score used for subgroup stratification</td><td>Provides a validated single-number summary of Elixhauser comorbidity burden suitable for tertile-based subgrouping</td></tr>
+    <tr><td>CRT group requires <em>both</em> chemo AND radiation</td><td>Distinguishes definitive chemoradiation from RT alone or chemo alone; chemo and RT dates stored separately to enable four-group classification</td></tr>
+    <tr><td>Three independent PSM runs (A, B, C)</td><td>Comp A, B, and C have distinct patient populations and treatment contrasts; a single matched cohort cannot serve all three comparisons</td></tr>
+    <tr><td>Triple-therapy arm (Comp C) defined loosely</td><td>Any TORS + chemo + RT classifies a patient as TORS+CRT. Chemo timing is not constrained to concurrent with RT &mdash; this maximizes statistical power for the new arm and reflects the heterogeneous use of chemo in surgical patients in Medicare data.</td></tr>
+    <tr><td>Comp C compares TORS + CRT to CRT (not to TORS + RT)</td><td>The original framing was TORS+CRT vs TORS+RT &mdash; "does chemo add harm in surgical patients?" That comparison is vulnerable to confounding by indication because chemo is selected for adverse pathology (positive margins, ENE, advanced stage) that Medicare claims can't observe, so the PSM model can't balance disease severity between arms. The current framing &mdash; TORS+CRT vs CRT &mdash; instead asks "does adding surgery to a CRT course add harm?" Both arms receive chemoradiation, so confounding by chemo indication doesn't bias the comparison; the residual confounding question shifts to surgical eligibility, which is anatomically driven and generally cleaner to interpret. Combined with Comp B (CRT alone vs TORS+RT), the pair of comparisons triangulates whether surgery or chemo drives late functional morbidity.</td></tr>
+    <tr><td>C77 nodal exclusion for Comp A only</td><td>Nodal disease is uncommon in single-modality patients (TORS alone, RT alone) and confounds functional outcomes. In Comp B and Comp C, nodal disease is expected in the multimodal population and is retained.</td></tr>
+    <tr><td>Multi-interval cumulative-incidence framework for G-tube + SLP</td><td>The dataset does not contain DME claims, so true G-tube dependence cannot be measured. Instead, the framework tracks cumulative incidence of any qualifying event at 14d/30d/90d/180d/1-yr/3-yr post-treatment. Persistence of the between-arm gap across multiple intervals is the clinical argument; a single 90d canonical timepoint provides the headline OR.</td></tr>
+    <tr><td>G-tube primary metric = placement procedure codes only</td><td>The Z93.1 gastrostomy status diagnosis is unreliable as a primary signal: it re-fires at every routine encounter while a tube exists (chemo infusions, follow-ups, hospitalizations), inflating cumulative incidence in arms with more healthcare contact and high baseline pre-existing tube prevalence (RT alone 11%, CRT 15%). Restricting to placement procedure codes (CPT 43246/49440, HCPCS B4087/B4088, ICD-10-PCS 0DH60UZ/0DH63UZ) ensures the metric reflects new tube placement attributable to treatment, not status re-coding. Exchange CPTs are also excluded because they measure maintenance of existing tubes, not new placement. Z93.1 + exchange flags are preserved in the SQL output as <code>event_by_{T}</code> for sensitivity analysis only.</td></tr>
+    <tr><td>Pre-treatment events as descriptor, not exclusion</td><td>For G-tube and SLP, pre-treatment events (between dx and first treatment) are reported as a baseline-severity descriptor rather than nulling the outcome. This separates baseline-attributable burden from treatment-attributable burden and avoids losing informative patients.</td></tr>
+    <tr><td>Expanded G-tube code set (added exchange CPTs)</td><td>Initial placement codes alone overcount peri-treatment tubes that are later pulled. Adding exchange CPTs (43760, 43762, 43763, 49450) captures the small but specific signal of tubes that remained in use long enough to require replacement.</td></tr>
+    <tr><td>Van Walraven binary split for subgroups</td><td>VW &le;0 (Low) vs VW &gt;0 (High) provides a clinically interpretable comorbidity dichotomy; the OPSCC Medicare population is relatively healthy, making tertiles sparsely populated in the highest group</td></tr>
+    <tr><td>SLP and G-tube SQLs scoped to matched patients only</td><td>Claims extraction is computationally expensive (scans carrier, outpatient, SNF, HHA, inpatient). Restricting to PSM-matched patients (across A, B, and C) avoids scanning claims for patients who will not appear in any analysis.</td></tr>
 </table>
+
+<h2 id="s11-1">11.1 Known Limitations</h2>
+<ul>
+    <li><strong>No DME claims:</strong> The database lacks enteral formula/supply HCPCS codes (B4034&ndash;B4162, B9002 returned zero hits). True ongoing G-tube dependence (active feeding) cannot be measured. The cumulative-incidence framework measures <em>new placement procedures</em>, not active dependence. A patient who had a tube placed at day 30 and used it for years registers identically to one who had it placed and removed within weeks.</li>
+    <li><strong>Z93.1 coding-intensity bias (addressed by primary metric):</strong> The Z93.1 status diagnosis is re-coded at every healthcare encounter. CRT patients have more encounters (chemo infusions, toxicity admits) and higher baseline pre-existing tube rates (~15%), which would inflate Z93.1-based cumulative incidence even without true differences in new tube placement. To avoid this artifact, the primary G-tube metric restricts to placement procedure codes only. Z93.1 + exchange-based <code>event_by_{T}</code> flags remain in the SQL output as a sensitivity column.</li>
+    <li><strong>Removal codes uninformative:</strong> CPT 43870 and ICD-PCS removal codes are billed for only ~1 patient in the matched cohort &mdash; the absence-of-removal heuristic cannot be used as a signal of ongoing tube presence.</li>
+    <li><strong>Sample-size attrition at late timepoints:</strong> Differential mortality (CRT &lt; TORS in 5-yr OS) reduces denominators at 1-yr and 3-yr cumulative-incidence boundaries. Both unconditional and at-risk-conditional rates are reported so readers can see the effect.</li>
+    <li><strong>Treatment-completion anchor is course-capped:</strong> <code>last_rt_date</code> / <code>last_chemo_date</code> are the latest RT/chemo claims <em>within 12 months of diagnosis</em>, matching the treatment-group definition window. This prevents later salvage/recurrence therapy from being mistaken for the index course, but a single 12-month window can still, rarely, contain an early recurrence that would push the completion anchor slightly later than the true definitive-treatment end.</li>
+    <li><strong>Delayed-placement washout is a convention:</strong> The &ge;90-day washout after completion is chosen to clear the acute mucositis-recovery window (~6&ndash;12 weeks); placements between completion and completion+90d are treated as part of the acute/subacute course, not delayed failure. The incident view (no tube through completion+90d) is the cleaner "new late dependence" signal; the all-comers view additionally captures patients who had an acute tube and a separate later placement.</li>
+</ul>
 
 </body>
 </html>

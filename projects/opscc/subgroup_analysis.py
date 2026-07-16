@@ -1,14 +1,17 @@
 """
-Subgroup survival analysis — two PSM-matched comparisons:
+Subgroup survival analysis — three PSM-matched comparisons:
   Comparison A: TORS alone  vs RT alone
-  Comparison B: TORS + RT   vs CT/CRT
+  Comparison B: TORS + RT   vs CRT
+  Comparison C: TORS + CRT  vs CRT
 
 Subgroups:
   1. Age < 75
   2. Age >= 75
-  3. Elixhauser van Walraven tertiles (Low / Mid / High)
+  3. Van Walraven binary: Low (VW ≤0) / High (VW >0)
 
-C77 (nodal disease) patients excluded from all analyses.
+C77 (nodal disease) patients are excluded from Comparison A at the PSM stage
+(iptw_analysis.py filters has_nodal_dx == False before matching). C77 patients
+are retained in Comparison B and C — N+ disease is expected in those populations.
 """
 
 import sys
@@ -24,48 +27,10 @@ DB_PATH = r"F:\CMS\cms_data.duckdb"
 
 COMPARISONS = [
     ('A', 'psm_matched_A', 'psm_match_id_A', 'TORS alone', 'RT alone'),
-    ('B', 'psm_matched_B', 'psm_match_id_B', 'TORS + RT',  'CT/CRT'),
+    ('B', 'psm_matched_B', 'psm_match_id_B', 'TORS + RT',  'CRT'),
+    ('C', 'psm_matched_C', 'psm_match_id_C', 'TORS + CRT', 'CRT'),
 ]
 
-# ── C77 exclusion CTE (reused across both comparisons) ────────────────────────
-C77_CTE = """
-    c77_patients AS (
-        SELECT DISTINCT o.DSYSRTKY
-        FROM opscc_cohort o
-        JOIN inp_claimsk_all i ON i.DSYSRTKY = o.DSYSRTKY,
-        UNNEST([i.PRNCPAL_DGNS_CD, i.ADMTG_DGNS_CD,
-                i.ICD_DGNS_CD1,  i.ICD_DGNS_CD2,  i.ICD_DGNS_CD3,
-                i.ICD_DGNS_CD4,  i.ICD_DGNS_CD5,  i.ICD_DGNS_CD6,
-                i.ICD_DGNS_CD7,  i.ICD_DGNS_CD8,  i.ICD_DGNS_CD9,
-                i.ICD_DGNS_CD10, i.ICD_DGNS_CD11, i.ICD_DGNS_CD12,
-                i.ICD_DGNS_CD13, i.ICD_DGNS_CD14, i.ICD_DGNS_CD15]) AS t(code)
-        WHERE code LIKE 'C77%'
-          AND TRY_STRPTIME(i.THRU_DT, '%Y%m%d')
-                  BETWEEN o.first_hnc_date - INTERVAL 90 DAY
-                      AND o.first_hnc_date + INTERVAL 90 DAY
-        UNION ALL
-        SELECT DISTINCT o.DSYSRTKY
-        FROM opscc_cohort o
-        JOIN out_claimsk_all oc ON oc.DSYSRTKY = o.DSYSRTKY,
-        UNNEST([oc.PRNCPAL_DGNS_CD,
-                oc.ICD_DGNS_CD1, oc.ICD_DGNS_CD2, oc.ICD_DGNS_CD3,
-                oc.ICD_DGNS_CD4, oc.ICD_DGNS_CD5, oc.ICD_DGNS_CD6,
-                oc.ICD_DGNS_CD7, oc.ICD_DGNS_CD8, oc.ICD_DGNS_CD9,
-                oc.ICD_DGNS_CD10]) AS t(code)
-        WHERE code LIKE 'C77%'
-          AND TRY_STRPTIME(oc.THRU_DT, '%Y%m%d')
-                  BETWEEN o.first_hnc_date - INTERVAL 90 DAY
-                      AND o.first_hnc_date + INTERVAL 90 DAY
-        UNION ALL
-        SELECT DISTINCT o.DSYSRTKY
-        FROM opscc_cohort o
-        JOIN car_linek_all cl ON cl.DSYSRTKY = o.DSYSRTKY
-        WHERE cl.LINE_ICD_DGNS_CD LIKE 'C77%'
-          AND TRY_STRPTIME(cl.THRU_DT, '%Y%m%d')
-                  BETWEEN o.first_hnc_date - INTERVAL 90 DAY
-                      AND o.first_hnc_date + INTERVAL 90 DAY
-    )
-"""
 
 
 def run_analysis(label, subset, tors_label, ctrl_label, match_id_col):
@@ -130,18 +95,16 @@ con.execute("SET memory_limit='24GB'; SET threads=12; SET temp_directory='F:\\CM
 for comp, match_col, match_id_col, tors_label, ctrl_label in COMPARISONS:
 
     print(f"\n{'#'*70}")
-    print(f"  COMPARISON {comp}: {tors_label}  vs  {ctrl_label}  (C77 excluded)")
+    print(f"  COMPARISON {comp}: {tors_label}  vs  {ctrl_label}")
     print(f"{'#'*70}")
 
     df = con.execute(f"""
-        WITH {C77_CTE},
-        matched AS (
+        WITH matched AS (
             SELECT DSYSRTKY, tx_group, first_tx_date, {match_id_col},
                    van_walraven_score, age_at_dx
             FROM opscc_propensity
             WHERE {match_col} = TRUE
               AND tx_group IN ('{tors_label}', '{ctrl_label}')
-              AND DSYSRTKY NOT IN (SELECT DSYSRTKY FROM c77_patients)
         ),
         mbsf_summary AS (
             SELECT m.DSYSRTKY,
@@ -158,28 +121,28 @@ for comp, match_col, match_id_col, tors_label, ctrl_label in COMPARISONS:
         JOIN mbsf_summary s ON p.DSYSRTKY = s.DSYSRTKY
     """).df()
 
+    if len(df) == 0:
+        print(f"  No matched patients for Comparison {comp}. Skipping.")
+        continue
+
     df['event_date'] = df['death_date'].combine_first(df['censor_date'])
     df['event']      = df['death_date'].notna().astype(int)
     df['t_days']     = (df['event_date'] - df['first_tx_date']).dt.days
     df = df[(df['first_tx_date'].notna()) & (df['t_days'] >= 0)].copy()
     df['tors']       = (df['tx_group'] == tors_label).astype(int)
 
-    print(f"N (C77 excluded): {len(df):,}  |  "
+    print(f"N: {len(df):,}  |  "
           f"{tors_label} deaths: {df[df.tors==1]['event'].sum()}  "
           f"{ctrl_label} deaths: {df[df.tors==0]['event'].sum()}")
 
-    t1 = df['van_walraven_score'].quantile(1/3)
-    t2 = df['van_walraven_score'].quantile(2/3)
-    df['vw_group'] = pd.cut(df['van_walraven_score'],
-                             bins=[-np.inf, t1, t2, np.inf],
-                             labels=['Low', 'Mid', 'High'])
-    print(f"Elixhauser tertiles: Low ≤{t1:.0f} | Mid {t1:.0f}–{t2:.0f} | High >{t2:.0f}")
+    df['vw_group'] = (df['van_walraven_score'] > 0).map({False: 'Low', True: 'High'})
+    print(f"Elixhauser groups: Low (VW <=0) | High (VW >0)")
 
     run_analysis("FULL MATCHED COHORT (all ages)", df, tors_label, ctrl_label, match_id_col)
     run_analysis("AGE < 75",  df[df['age_at_dx'] < 75], tors_label, ctrl_label, match_id_col)
-    run_analysis("AGE \u2265 75", df[df['age_at_dx'] >= 75], tors_label, ctrl_label, match_id_col)
-    for grp in ['Low', 'Mid', 'High']:
-        run_analysis(f"ELIXHAUSER {grp} (VW tertile)",
+    run_analysis("AGE >= 75", df[df['age_at_dx'] >= 75], tors_label, ctrl_label, match_id_col)
+    for grp in ['Low', 'High']:
+        run_analysis(f"ELIXHAUSER {grp} (VW <=0 / >0)",
                      df[df['vw_group'] == grp], tors_label, ctrl_label, match_id_col)
 
 con.close()

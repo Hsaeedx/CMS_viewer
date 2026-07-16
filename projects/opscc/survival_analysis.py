@@ -1,14 +1,15 @@
 """
-Overall survival analysis — two PSM-matched comparisons:
+Overall survival analysis — three PSM-matched comparisons:
   Comparison A: TORS alone  vs RT alone
-  Comparison B: TORS + RT   vs CT/CRT
+  Comparison B: TORS + RT   vs CRT
+  Comparison C: TORS + CRT  vs CRT
 Time origin: first_tx_date
 Event: all-cause death (MBSF DEATH_DT)
 Censoring: December 31 of each patient's last enrollment year in mbsf_all
 
 Reads from pre-built SQL tables:
-  opscc_survival    — death date + Dec-31 censor per patient (step 11)
-  opscc_propensity  — PSM match flags (updated by step 13)
+  opscc_survival    — death date + Dec-31 censor per patient
+  opscc_propensity  — PSM match flags
 """
 
 import sys
@@ -25,7 +26,8 @@ DB_PATH = r"F:\CMS\cms_data.duckdb"
 
 COMPARISONS = [
     ('A', 'psm_matched_A', 'psm_match_id_A', 'TORS alone', 'RT alone'),
-    ('B', 'psm_matched_B', 'psm_match_id_B', 'TORS + RT',  'CT/CRT'),
+    ('B', 'psm_matched_B', 'psm_match_id_B', 'TORS + RT',  'CRT'),
+    ('C', 'psm_matched_C', 'psm_match_id_C', 'TORS + CRT', 'CRT'),
 ]
 
 
@@ -71,6 +73,10 @@ for comp, match_col, match_id_col, tors_label, ctrl_label in COMPARISONS:
     """).df()
 
     print(f"Loaded {len(survival):,} patients  |  Deaths: {survival['event'].sum():,}")
+
+    if len(survival) == 0:
+        print(f"  No matched patients for Comparison {comp}. Skipping.")
+        continue
 
     tors_s = survival[survival['tx_group'] == tors_label]
     ctrl_s = survival[survival['tx_group'] == ctrl_label]

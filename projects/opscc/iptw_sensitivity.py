@@ -38,12 +38,12 @@ FEATURE_COLS = ['age_at_dx', 'male', 'white', 'black', 'hispanic', 'asian_pi'] +
 
 COMPARISONS = [
     ('A', 'TORS alone', 'RT alone'),
-    ('B', 'TORS + RT',  'CT/CRT'),
+    ('B', 'TORS + RT',  'CRT'),
+    ('C', 'TORS + CRT', 'CRT'),
 ]
 OUTCOMES_COLS = [
-    ('Dysphagia',    'has_dysphagia',    'days_dys'),
-    ('G-tube',       'has_gtube',        'days_gt'),
-    ('Tracheostomy', 'has_tracheostomy', 'days_tr'),
+    ('Dysphagia',         'has_dysphagia',        'days_dys'),
+    ('G-tube placem 90d', 'gtube_placem_by_90d',  'days_gt'),
 ]
 
 # -- PSM reference results (from pipeline run, anytime / all matched, C77 excl) -
@@ -53,18 +53,24 @@ PSM_REF = {
         'hr': 0.567, 'hr_lo': 0.460, 'hr_hi': 0.699, 'hr_p': 0.0,
         'os5_tors': 73.2, 'os5_ctrl': 61.2,
         'n_imbalanced': 1,
-        'or': {'Dysphagia': (1.15, 0.88, 1.50, 0.307),
-               'G-tube':    (0.74, 0.56, 0.98, 0.036),
-               'Tracheostomy': (0.45, 0.27, 0.75, 0.002)},
+        'or': {'Dysphagia':         (1.15, 0.88, 1.50, 0.307),
+               'G-tube placem 90d': (np.nan, np.nan, np.nan, np.nan)},
     },
     'B': {
         'n_pairs': 129,
         'hr': 0.536, 'hr_lo': 0.349, 'hr_hi': 0.824, 'hr_p': 0.004,
         'os5_tors': 66.5, 'os5_ctrl': 51.8,
         'n_imbalanced': 10,
-        'or': {'Dysphagia': (1.07, 0.53, 2.16, 0.848),
-               'G-tube':    (0.30, 0.17, 0.53, 0.0),
-               'Tracheostomy': (0.80, 0.40, 1.60, 0.524)},
+        'or': {'Dysphagia':         (1.07, 0.53, 2.16, 0.848),
+               'G-tube placem 90d': (np.nan, np.nan, np.nan, np.nan)},
+    },
+    'C': {
+        'n_pairs': np.nan,
+        'hr': np.nan, 'hr_lo': np.nan, 'hr_hi': np.nan, 'hr_p': np.nan,
+        'os5_tors': np.nan, 'os5_ctrl': np.nan,
+        'n_imbalanced': np.nan,
+        'or': {'Dysphagia':         (np.nan, np.nan, np.nan, np.nan),
+               'G-tube placem 90d': (np.nan, np.nan, np.nan, np.nan)},
     },
 }
 
@@ -347,13 +353,12 @@ for comp, tors_label, ctrl_label in COMPARISONS:
                s.death_date, s.last_ffs_date,
                o.has_dysphagia,
                DATEDIFF('day', p.first_tx_date, o.first_dysphagia_date) AS days_dys,
-               o.has_gtube,
-               DATEDIFF('day', p.first_tx_date, o.first_gtube_date)     AS days_gt,
-               o.has_tracheostomy,
-               DATEDIFF('day', p.first_tx_date, o.first_trach_date)     AS days_tr
+               g.placement_by_90d AS gtube_placem_by_90d,
+               g.first_post_placement_day AS days_gt
         FROM cohort p
         JOIN mbsf_sum       s ON s.DSYSRTKY = p.DSYSRTKY
         JOIN opscc_outcomes o ON o.DSYSRTKY = p.DSYSRTKY
+        LEFT JOIN opscc_gtube_dependence g ON g.DSYSRTKY = p.DSYSRTKY
     """).df()
 
     outc['iptw']          = outc['DSYSRTKY'].map(wmap)

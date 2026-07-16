@@ -7,7 +7,8 @@
 --   TORS alone  : TORS within 12mo; no chemo; no RT
 --   RT alone    : RT within 12mo;   no chemo; no TORS
 --   TORS + RT   : TORS + RT within 12mo; no chemo
---   CT/CRT      : chemo + RT within 12mo; no TORS
+--   TORS + CRT  : TORS + chemo + RT within 12mo (triple-modality; any chemo timing)
+--   CRT         : chemo + RT within 12mo; no TORS
 --   Other       : all remaining combinations (excluded from PSM analyses)
 
 DROP TABLE IF EXISTS opscc_propensity;
@@ -94,18 +95,20 @@ SELECT
 
     -- Treatment group
     CASE
-        WHEN t.has_tors  AND NOT t.has_chemo AND NOT t.has_rt  THEN 'TORS alone'
-        WHEN t.has_rt    AND NOT t.has_chemo AND NOT t.has_tors THEN 'RT alone'
-        WHEN t.has_tors  AND t.has_rt        AND NOT t.has_chemo THEN 'TORS + RT'
-        WHEN t.has_chemo AND t.has_rt        AND NOT t.has_tors  THEN 'CT/CRT'
+        WHEN t.has_tors  AND t.has_chemo     AND t.has_rt         THEN 'TORS + CRT'
+        WHEN t.has_tors  AND NOT t.has_chemo AND NOT t.has_rt     THEN 'TORS alone'
+        WHEN t.has_rt    AND NOT t.has_chemo AND NOT t.has_tors   THEN 'RT alone'
+        WHEN t.has_tors  AND t.has_rt        AND NOT t.has_chemo  THEN 'TORS + RT'
+        WHEN t.has_chemo AND t.has_rt        AND NOT t.has_tors   THEN 'CRT'
         ELSE 'Other'
     END AS tx_group,
 
     -- First treatment date (time origin for survival / outcomes)
     CASE
-        WHEN t.has_tors  AND NOT t.has_chemo AND NOT t.has_rt  THEN t.first_tors_date
-        WHEN t.has_rt    AND NOT t.has_chemo AND NOT t.has_tors THEN t.first_rt_date
-        WHEN t.has_tors  AND t.has_rt        AND NOT t.has_chemo THEN t.first_tors_date
+        WHEN t.has_tors  AND t.has_chemo     AND t.has_rt         THEN t.first_tors_date
+        WHEN t.has_tors  AND NOT t.has_chemo AND NOT t.has_rt     THEN t.first_tors_date
+        WHEN t.has_rt    AND NOT t.has_chemo AND NOT t.has_tors   THEN t.first_rt_date
+        WHEN t.has_tors  AND t.has_rt        AND NOT t.has_chemo  THEN t.first_tors_date
         WHEN t.has_chemo AND t.has_rt        AND NOT t.has_tors
             THEN LEAST(t.first_chemo_date, t.first_rt_date)
         ELSE NULL
@@ -161,7 +164,11 @@ SELECT
     e.alcohol,
     e.drug,
     e.psycho,
-    e.depre
+    e.depre,
+
+    -- Nodal involvement flag (C77 within ±90 days of dx)
+    -- Applied to Comp A exclusion in iptw_analysis.py; included here for downstream filtering
+    o.has_nodal_dx
 
 FROM opscc_cohort o
 JOIN tx t ON o.DSYSRTKY = t.DSYSRTKY
@@ -169,4 +176,26 @@ JOIN demo d ON o.DSYSRTKY = d.DSYSRTKY
 LEFT JOIN subsite s ON o.DSYSRTKY = s.DSYSRTKY
 LEFT JOIN opscc_comorbidity e ON o.DSYSRTKY = e.DSYSRTKY
 WHERE o.has_metastatic_dx = FALSE
-  AND o.first_hnc_date < DATE '2023-07-01';
+  AND o.first_hnc_date < DATE '2023-07-01'
+  -- Exclude patients whose chemo or RT predates their OPSCC diagnosis.
+  -- Such records reflect treatment for a prior unrelated cancer, not the
+  -- OPSCC of interest. Misclassification would inflate "multimodality"
+  -- arm sizes and bias outcome comparisons.
+  AND (o.first_chemo_date IS NULL OR o.first_chemo_date >= o.first_hnc_date::DATE)
+  AND (o.first_rt_date    IS NULL OR o.first_rt_date    >= o.first_hnc_date::DATE)
+  -- TORS can legitimately occur within 30 days BEFORE the billed diagnosis
+  -- date (the surgery itself is often the diagnostic procedure, with the
+  -- post-op pathology bill establishing the diagnosis date in claims).
+  -- Exclude only patients whose TORS preceded the diagnosis by more than
+  -- 30 days, which suggests an unrelated prior procedure.
+  AND (o.first_tors_date  IS NULL OR o.first_tors_date  >= o.first_hnc_date::DATE - INTERVAL 30 DAY)
+  -- Exclude patients whose chemo preceded TORS. These represent either
+  -- induction chemo → surgery sequences or salvage TORS after CRT — both
+  -- distinct from the intended "TORS + adjuvant CRT" pathway. The TORS+CRT
+  -- arm should reflect patients who had surgery first and then received
+  -- chemoradiation.
+  AND (
+      NOT t.has_tors
+      OR NOT t.has_chemo
+      OR t.first_chemo_date >= t.first_tors_date
+  );
